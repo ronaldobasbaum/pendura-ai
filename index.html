@@ -615,6 +615,10 @@
       <tbody id="movements-table"></tbody>
     </table>
   </div>
+  <div id="movements-load-more" style="text-align:center;padding:1.25rem 0;display:none">
+    <button class="btn btn-secondary" onclick="loadMoreMovements()">⬇ Carregar Mais</button>
+    <div id="movements-count" style="font-size:.75rem;color:var(--muted);margin-top:.5rem"></div>
+  </div>
 </div>
 
 <!-- RELATÓRIOS -->
@@ -972,6 +976,9 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 // ===== STATE =====
 let data = { clients: [], products: [], movements: [], orders: [] };
+let movementsPage = 0;
+const MOVEMENTS_PAGE_SIZE = 100;
+let movementsHasMore = false;
 let currentUser = null;
 let currentProfile = null;
 
@@ -1119,7 +1126,7 @@ async function loadAll() {
     const [cr, pr, mr, or_] = await Promise.all([
       db.from('clients').select('*').eq('user_id', currentUser.id).order('created_at'),
       db.from('products').select('*').eq('user_id', currentUser.id).order('created_at'),
-      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }),
+      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(0, 99),
       db.from('orders').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false })
     ]);
     if (cr.error || pr.error || mr.error) {
@@ -1135,12 +1142,15 @@ async function loadAll() {
       qty:Number(o.qty), unitPrice:Number(o.unit_price), total:Number(o.total),
       deliveryDate:o.delivery_date, obs:o.obs, status:o.status, createdAt:o.created_at
     }));
-    data.movements = (mr.data || []).map(m => ({
+    const rawMovements = (mr.data || []).map(m => ({
       id:m.id, type:m.type, clientCode:m.client_code, clientName:m.client_name,
       productCode:m.product_code, productName:m.product_name,
       qty:Number(m.qty), unitPrice:Number(m.unit_price), total:Number(m.total),
       date:m.date, obs:m.obs, createdAt:m.created_at
     }));
+    movementsHasMore = rawMovements.length === MOVEMENTS_PAGE_SIZE;
+    movementsPage = 0;
+    data.movements = rawMovements;
     refreshAll();
   } catch (e) {
     showToast('Erro de conexão. Tente novamente.', true);
@@ -1428,7 +1438,14 @@ function renderMovements() {
   if(ft) mvs=mvs.filter(m=>m.type===ft);
   if(fd1) mvs=mvs.filter(m=>m.date>=fd1);
   if(fd2) mvs=mvs.filter(m=>m.date<=fd2);
-  if(!mvs.length){ tb.innerHTML='<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div><p>Nenhuma movimentação encontrada.</p></div></td></tr>'; return; }
+  const loadMoreDiv = document.getElementById('movements-load-more');
+  const countDiv = document.getElementById('movements-count');
+  if(!mvs.length){ tb.innerHTML='<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div><p>Nenhuma movimentação encontrada.</p></div></td></tr>'; if(loadMoreDiv) loadMoreDiv.style.display='none'; return; }
+  if(loadMoreDiv) {
+    loadMoreDiv.style.display = movementsHasMore ? 'block' : 'none';
+    if(loadMoreDiv.querySelector('button')) loadMoreDiv.querySelector('button').textContent = '⬇ Carregar Mais';
+    if(countDiv) countDiv.textContent = movementsHasMore ? `Mostrando ${data.movements.length} movimentações. Há mais registros.` : `Total: ${mvs.length} movimentações`;
+  }
   tb.innerHTML=mvs.map((m,i)=>{
     const badge=m.type==='venda'?'<span class="badge badge-pending">Venda</span>':'<span class="badge badge-paid">Pagamento</span>';
     return `<tr>
@@ -1444,11 +1461,40 @@ function renderMovements() {
     </tr>`;
   }).join('');
 }
+async function loadMoreMovements() {
+  const btn = document.getElementById('movements-load-more');
+  if (btn) btn.querySelector('button').textContent = '⏳ Carregando...';
+  movementsPage++;
+  const from = movementsPage * MOVEMENTS_PAGE_SIZE;
+  const to = from + MOVEMENTS_PAGE_SIZE - 1;
+  const fc = document.getElementById('filter-client')?.value || '';
+  const ft = document.getElementById('filter-type')?.value || '';
+  const fd1 = document.getElementById('filter-date-from')?.value || '';
+  const fd2 = document.getElementById('filter-date-to')?.value || '';
+  let q = db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(from, to);
+  if (fc) q = q.eq('client_code', fc);
+  if (ft) q = q.eq('type', ft);
+  if (fd1) q = q.gte('date', fd1);
+  if (fd2) q = q.lte('date', fd2);
+  const { data: more, error } = await q;
+  if (error) { showToast('Erro ao carregar mais movimentações', true); return; }
+  const mapped = (more || []).map(m => ({
+    id:m.id, type:m.type, clientCode:m.client_code, clientName:m.client_name,
+    productCode:m.product_code, productName:m.product_name,
+    qty:Number(m.qty), unitPrice:Number(m.unit_price), total:Number(m.total),
+    date:m.date, obs:m.obs, createdAt:m.created_at
+  }));
+  movementsHasMore = mapped.length === MOVEMENTS_PAGE_SIZE;
+  data.movements = [...data.movements, ...mapped];
+  renderMovements();
+}
+
 function clearFilters() {
   document.getElementById('filter-client').value='';
   document.getElementById('filter-type').value='';
   document.getElementById('filter-date-from').value='';
   document.getElementById('filter-date-to').value='';
+  movementsPage = 0;
   renderMovements();
 }
 
