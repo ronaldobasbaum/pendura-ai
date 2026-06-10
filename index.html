@@ -529,7 +529,7 @@
     </div>
     <div class="form-group">
       <label>Telefone</label>
-      <input type="text" id="cli-phone" placeholder="(00) 00000-0000">
+      <input type="tel" id="cli-phone" placeholder="(00) 00000-0000" maxlength="15">
     </div>
     <div class="form-group form-group-btn">
       <button class="btn btn-primary" onclick="addClient()">➕ Cadastrar</button>
@@ -768,7 +768,7 @@
       </div>
       <div class="form-group">
         <label>Telefone</label>
-        <input type="text" id="edit-cli-phone" placeholder="(00) 00000-0000">
+        <input type="tel" id="edit-cli-phone" placeholder="(00) 00000-0000" maxlength="15">
       </div>
     </div>
     <div class="modal-footer">
@@ -1324,6 +1324,8 @@ function onSaleProductChange() {
 }
 
 async function addSale() {
+  const saleBtn = document.querySelector('#page-nova-venda .btn-primary');
+  if (saleBtn) { saleBtn.disabled = true; saleBtn.textContent = '⏳ Salvando...'; }
   const clientCode=document.getElementById('sale-client').value;
   const productCode=document.getElementById('sale-product').value;
   const qty=parseInt(document.getElementById('sale-qty').value)||1;
@@ -1343,7 +1345,10 @@ async function addSale() {
     product_code:productCode, product_name:prod.name,
     qty, unit_price:unitPrice, total, date, obs, user_id:currentUser.id
   });
-  if(error) return showToast('Erro ao salvar: '+error.message,true);
+  if(error) {
+    if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
+    return showToast('Erro ao salvar: '+error.message,true);
+  }
   data.movements.unshift({
     id, type:'venda', clientCode, clientName:cli.name,
     productCode, productName:prod.name, qty, unitPrice, total, date, obs,
@@ -1355,6 +1360,7 @@ async function addSale() {
   document.getElementById('sale-unit-price').value='';
   document.getElementById('sale-qty').value=1;
   document.getElementById('sale-obs').value='';
+  if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
   showToast(`Venda de ${fmtMoney(total)} registrada para ${cli.name}!`);
 }
 
@@ -1390,6 +1396,8 @@ function fillFullDebt() {
 }
 
 async function addPayment() {
+  const payBtn = document.querySelector('#page-nova-venda .btn-success');
+  if (payBtn) { payBtn.disabled = true; payBtn.textContent = '⏳ Salvando...'; }
   const clientCode=document.getElementById('pay-client').value;
   const value=parseFloat(document.getElementById('pay-value').value);
   const date=document.getElementById('pay-date').value||today();
@@ -1405,7 +1413,10 @@ async function addPayment() {
     product_code:'—', product_name:'Pagamento recebido',
     qty:1, unit_price:value, total:value, date, obs, user_id:currentUser.id
   });
-  if(error) return showToast('Erro ao salvar: '+error.message,true);
+  if(error) {
+    if(payBtn) { payBtn.disabled = false; payBtn.textContent = '✅ Registrar Pagamento'; }
+    return showToast('Erro ao salvar: '+error.message,true);
+  }
   data.movements.unshift({
     id, type:'pagamento', clientCode, clientName:cli.name,
     productCode:'—', productName:'Pagamento recebido', qty:1, unitPrice:value, total:value, date, obs,
@@ -1416,6 +1427,7 @@ async function addPayment() {
   document.getElementById('pay-value').value='';
   document.getElementById('pay-obs').value='';
   document.getElementById('pay-debt-group').style.display='none';
+  if(payBtn) { payBtn.disabled = false; payBtn.textContent = '✅ Registrar Pagamento'; }
   showToast(`Pagamento de ${fmtMoney(value)} registrado!`);
 }
 
