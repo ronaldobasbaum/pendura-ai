@@ -977,7 +977,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 // ===== STATE =====
 let data = { clients: [], products: [], movements: [], orders: [] };
 let movementsPage = 0;
-const MOVEMENTS_PAGE_SIZE = 100;
+const MOVEMENTS_PAGE_SIZE = 50;
 let movementsHasMore = false;
 let currentUser = null;
 let currentProfile = null;
@@ -1126,7 +1126,7 @@ async function loadAll() {
     const [cr, pr, mr, or_] = await Promise.all([
       db.from('clients').select('*').eq('user_id', currentUser.id).order('created_at'),
       db.from('products').select('*').eq('user_id', currentUser.id).order('created_at'),
-      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(0, 99),
+      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(0, 49),
       db.from('orders').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false })
     ]);
     if (cr.error || pr.error || mr.error) {
