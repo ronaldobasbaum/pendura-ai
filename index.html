@@ -878,6 +878,48 @@
   </div>
 </div>
 
+<!-- MODAL EDITAR ENCOMENDA -->
+<div id="modal-edit-order" class="modal-overlay">
+  <div class="modal" style="max-width:480px">
+    <h2>✏️ Editar Encomenda</h2>
+    <input type="hidden" id="edit-order-id">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Cliente</label>
+        <select id="edit-order-client">
+          <option value="">Selecione o cliente...</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Produto</label>
+        <select id="edit-order-product" onchange="onEditOrderProductChange()">
+          <option value="">Selecione o produto...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Preço Unitário (R$)</label>
+        <input type="number" id="edit-order-unit-price" placeholder="0,00" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Quantidade</label>
+        <input type="number" id="edit-order-qty" value="1" min="1">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Data de Entrega Prevista</label>
+        <input type="date" id="edit-order-delivery-date">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Observação</label>
+        <input type="text" id="edit-order-obs" placeholder="Opcional...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-order')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditOrder()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- Loading overlay -->
@@ -1406,7 +1448,7 @@ function renderProducts() {
 
 // ===== SELECTS =====
 function populateSelects() {
-  ['sale-client','pay-client','filter-client','order-client','order-filter-client'].forEach(id=>{
+  ['sale-client','pay-client','filter-client','order-client','order-filter-client','edit-order-client'].forEach(id=>{
     const el=document.getElementById(id); if(!el) return;
     const v=el.value;
     el.innerHTML='<option value="">Selecione...</option>'+data.clients.map(c=>`<option value="${c.code}">${c.code} — ${c.name}</option>`).join('');
@@ -1416,6 +1458,8 @@ function populateSelects() {
   if(sp){ const v=sp.value; sp.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); sp.value=v; }
   const op=document.getElementById('order-product');
   if(op){ const v=op.value; op.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); op.value=v; }
+  const eop=document.getElementById('edit-order-product');
+  if(eop){ const v=eop.value; eop.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); eop.value=v; }
 }
 
 // ===== SALES =====
@@ -1999,6 +2043,58 @@ function onOrderProductChange() {
   document.getElementById('order-unit-price').value = prod ? prod.price : '';
 }
 
+function onEditOrderProductChange() {
+  const productCode = document.getElementById('edit-order-product').value;
+  const prod = data.products.find(p => p.code === productCode);
+  document.getElementById('edit-order-unit-price').value = prod ? prod.price : '';
+}
+
+function openEditOrder(orderId) {
+  const o = data.orders.find(o => o.id === orderId);
+  if (!o) return;
+  document.getElementById('edit-order-id').value = o.id;
+  document.getElementById('edit-order-client').value = o.clientCode;
+  document.getElementById('edit-order-product').value = o.productCode;
+  document.getElementById('edit-order-unit-price').value = o.unitPrice;
+  document.getElementById('edit-order-qty').value = o.qty;
+  document.getElementById('edit-order-delivery-date').value = o.deliveryDate || '';
+  document.getElementById('edit-order-obs').value = o.obs || '';
+  document.getElementById('modal-edit-order').classList.add('open');
+}
+
+async function saveEditOrder() {
+  const orderId = document.getElementById('edit-order-id').value;
+  const clientCode = document.getElementById('edit-order-client').value;
+  const productCode = document.getElementById('edit-order-product').value;
+  const qty = parseInt(document.getElementById('edit-order-qty').value) || 1;
+  const unitPriceRaw = parseFloat(document.getElementById('edit-order-unit-price').value);
+  const deliveryDate = document.getElementById('edit-order-delivery-date').value || null;
+  const obs = document.getElementById('edit-order-obs').value.trim();
+  if (!clientCode) return showToast('Selecione um cliente!', true);
+  if (!productCode) return showToast('Selecione um produto!', true);
+  if (isNaN(unitPriceRaw) || unitPriceRaw < 0) return showToast('Informe um preço válido!', true);
+  const prod = data.products.find(p => p.code === productCode);
+  const cli = data.clients.find(c => c.code === clientCode);
+  const total = unitPriceRaw * qty;
+  const { error } = await db.from('orders').update({
+    client_code: clientCode, client_name: cli.name,
+    product_code: productCode, product_name: prod.name,
+    qty, unit_price: unitPriceRaw, total,
+    delivery_date: deliveryDate, obs
+  }).eq('id', orderId).eq('user_id', currentUser.id);
+  if (error) return showToast('Erro ao salvar: ' + error.message, true);
+  const o = data.orders.find(o => o.id === orderId);
+  if (o) {
+    o.clientCode = clientCode; o.clientName = cli.name;
+    o.productCode = productCode; o.productName = prod.name;
+    o.qty = qty; o.unitPrice = unitPriceRaw; o.total = total;
+    o.deliveryDate = deliveryDate; o.obs = obs;
+  }
+  closeModal('modal-edit-order');
+  refreshAll();
+  showToast('Encomenda atualizada!');
+}
+
 async function addOrder() {
   const clientCode = document.getElementById('order-client').value;
   const productCode = document.getElementById('order-product').value;
@@ -2130,11 +2226,13 @@ function renderOrders() {
     let actions = '';
     if (o.status === 'pendente') {
       actions = `
+        <button class="btn btn-secondary btn-sm" onclick="openEditOrder('${o.id}')">✏️ Editar</button>
         <button class="btn btn-secondary btn-sm" onclick="updateOrderStatus('${o.id}','pronto')">✅ Pronto</button>
         <button class="btn btn-primary btn-sm" onclick="openEntregarModal('${o.id}')">🚚 Entregar</button>
         <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">✕</button>`;
     } else if (o.status === 'pronto') {
       actions = `
+        <button class="btn btn-secondary btn-sm" onclick="openEditOrder('${o.id}')">✏️ Editar</button>
         <button class="btn btn-secondary btn-sm" onclick="updateOrderStatus('${o.id}','pendente')">↩ Pendente</button>
         <button class="btn btn-primary btn-sm" onclick="openEntregarModal('${o.id}')">🚚 Entregar</button>
         <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">✕</button>`;
@@ -2215,6 +2313,7 @@ document.getElementById('modal-pagamento').addEventListener('click', function(e)
 document.getElementById('modal-edit-client').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-client'); });
 document.getElementById('modal-edit-product').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-product'); });
 document.getElementById('modal-entregar').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-entregar'); });
+document.getElementById('modal-edit-order').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-order'); });
 
 // ===== AUTH STATE CHANGE =====
 let authResolved = false;
