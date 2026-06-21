@@ -786,6 +786,40 @@
   </div>
 </div>
 
+<!-- MODAL EDITAR PRODUTO -->
+<div id="modal-edit-product" class="modal-overlay">
+  <div class="modal" style="max-width:420px">
+    <h2>✏️ Editar Produto</h2>
+    <input type="hidden" id="edit-prod-code">
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <div class="form-group">
+        <label>Código</label>
+        <input type="text" id="edit-prod-code-display" disabled style="opacity:.5;cursor:not-allowed">
+      </div>
+      <div class="form-group">
+        <label>Nome *</label>
+        <input type="text" id="edit-prod-name" placeholder="Descrição do produto">
+      </div>
+      <div class="form-group">
+        <label>Preço de Custo (R$)</label>
+        <input type="number" id="edit-prod-cost" placeholder="0,00" step="0.01" min="0" oninput="updateEditProdMargin()">
+      </div>
+      <div class="form-group">
+        <label>Preço de Venda (R$)</label>
+        <input type="number" id="edit-prod-price" placeholder="0,00" step="0.01" min="0" oninput="updateEditProdMargin()">
+      </div>
+      <div class="form-group">
+        <label>Margem (%)</label>
+        <input type="text" id="edit-prod-margin" placeholder="—" readonly style="background:var(--surface);color:var(--accent2);font-weight:700;cursor:default">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-product')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditProduct()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL ALTERAR SENHA -->
 <div id="modal-change-pw" class="modal-overlay" style="display:none">
   <div class="modal" style="max-width:380px">
@@ -1288,6 +1322,42 @@ function updateProdMargin() {
   el.value=margin.toFixed(1)+'%';
   el.style.color = margin<0 ? 'var(--red)' : 'var(--accent2)';
 }
+function updateEditProdMargin() {
+  const cost=parseFloat(document.getElementById('edit-prod-cost').value)||0;
+  const price=parseFloat(document.getElementById('edit-prod-price').value)||0;
+  const margin=calcMargin(cost, price);
+  const el=document.getElementById('edit-prod-margin');
+  if(margin===null){ el.value=''; return; }
+  el.value=margin.toFixed(1)+'%';
+  el.style.color = margin<0 ? 'var(--red)' : 'var(--accent2)';
+}
+function openEditProduct(code) {
+  const p=data.products.find(p=>p.code===code);
+  if(!p) return;
+  document.getElementById('edit-prod-code').value=p.code;
+  document.getElementById('edit-prod-code-display').value=p.code;
+  document.getElementById('edit-prod-name').value=p.name;
+  document.getElementById('edit-prod-cost').value=p.cost||'';
+  document.getElementById('edit-prod-price').value=p.price||'';
+  updateEditProdMargin();
+  document.getElementById('modal-edit-product').classList.add('open');
+  setTimeout(()=>document.getElementById('edit-prod-name').focus(),100);
+}
+async function saveEditProduct() {
+  const code=document.getElementById('edit-prod-code').value;
+  const name=document.getElementById('edit-prod-name').value.trim();
+  const cost=parseFloat(document.getElementById('edit-prod-cost').value)||0;
+  const price=parseFloat(document.getElementById('edit-prod-price').value)||0;
+  if(!name) return showToast('Nome é obrigatório!',true);
+  if(!price||price<=0) return showToast('Informe um preço de venda válido!',true);
+  const {error}=await db.from('products').update({name,price,cost}).eq('code',code).eq('user_id',currentUser.id);
+  if(error) return showToast('Erro ao salvar: '+error.message,true);
+  const p=data.products.find(p=>p.code===code);
+  if(p){ p.name=name; p.price=price; p.cost=cost; }
+  closeModal('modal-edit-product');
+  refreshAll();
+  showToast('Produto atualizado!');
+}
 async function addProduct() {
   const code=document.getElementById('prod-code').value.trim();
   const name=document.getElementById('prod-name').value.trim();
@@ -1326,7 +1396,10 @@ function renderProducts() {
     <td style="font-family:'Space Mono';color:var(--muted)">${p.cost ? fmtMoney(p.cost) : '—'}</td>
     <td style="font-family:'Space Mono'">${fmtMoney(p.price)}</td>
     <td style="font-family:'Space Mono'">${marginStr}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.code}')">✕</button></td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-secondary btn-sm" onclick="openEditProduct('${p.code}')">✏️ Editar</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.code}')">✕</button>
+    </td>
   </tr>`;
   }).join('');
 }
@@ -2140,6 +2213,7 @@ document.getElementById('order-delivery-date').value = tomorrow.toISOString().sp
 document.getElementById('modal-extrato').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-extrato'); });
 document.getElementById('modal-pagamento').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-pagamento'); });
 document.getElementById('modal-edit-client').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-client'); });
+document.getElementById('modal-edit-product').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-product'); });
 document.getElementById('modal-entregar').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-entregar'); });
 
 // ===== AUTH STATE CHANGE =====
