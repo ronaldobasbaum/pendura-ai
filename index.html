@@ -561,8 +561,16 @@
       <input type="text" id="prod-name" placeholder="Descrição do produto">
     </div>
     <div class="form-group">
-      <label>Preço Unitário (R$)</label>
-      <input type="number" id="prod-price" placeholder="0,00" step="0.01" min="0">
+      <label>Preço de Custo (R$)</label>
+      <input type="number" id="prod-cost" placeholder="0,00" step="0.01" min="0" oninput="updateProdMargin()">
+    </div>
+    <div class="form-group">
+      <label>Preço de Venda (R$)</label>
+      <input type="number" id="prod-price" placeholder="0,00" step="0.01" min="0" oninput="updateProdMargin()">
+    </div>
+    <div class="form-group">
+      <label>Margem (%)</label>
+      <input type="text" id="prod-margin" placeholder="—" readonly style="background:var(--surface);color:var(--accent2);font-weight:700;cursor:default">
     </div>
     <div class="form-group form-group-btn">
       <button class="btn btn-primary" onclick="addProduct()">➕ Cadastrar</button>
@@ -572,7 +580,7 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Código</th><th>Nome</th><th>Preço Unit.</th><th>Ações</th></tr>
+        <tr><th>Código</th><th>Nome</th><th>Custo</th><th>Preço Unit.</th><th>Margem</th><th>Ações</th></tr>
       </thead>
       <tbody id="products-table"></tbody>
     </table>
@@ -1135,7 +1143,7 @@ async function loadAll() {
     }
     if (or_.error) console.warn('Erro ao carregar encomendas (tabela pode não existir ainda):', or_.error);
     data.clients = (cr.data || []).map(c => ({ code:c.code, name:c.name, phone:c.phone, createdAt:c.created_at }));
-    data.products = (pr.data || []).map(p => ({ code:p.code, name:p.name, price:Number(p.price) }));
+    data.products = (pr.data || []).map(p => ({ code:p.code, name:p.name, price:Number(p.price), cost:Number(p.cost)||0 }));
     data.orders = (or_.data || []).map(o => ({
       id:o.id, clientCode:o.client_code, clientName:o.client_name,
       productCode:o.product_code, productName:o.product_name,
@@ -1180,7 +1188,7 @@ function showPage(id) {
   const map = {dashboard:'📊',nova_venda:'➕','nova-venda':'➕',clientes:'👤',produtos:'📦',movimentacoes:'📋',relatorios:'📈'};
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   const btns=[...document.querySelectorAll('.nav-btn')];
-  const idx={dashboard:0,'nova-venda':1,clientes:2,produtos:3,movimentacoes:4,encomendas:5,relatorios:6,admin:7};
+  const idx={dashboard:0,'nova-venda':1,clientes:2,produtos:3,movimentacoes:4,relatorios:5,encomendas:6,admin:7};
   if(btns[idx[id]]) btns[idx[id]].classList.add('active');
   if(id==='admin') { renderAdminPanel(); return; }
   refreshAll();
@@ -1267,19 +1275,35 @@ function renderClients() {
 }
 
 // ===== PRODUCTS =====
+function calcMargin(cost, price) {
+  if(!cost || cost<=0 || !price || price<=0) return null;
+  return ((price - cost) / price) * 100;
+}
+function updateProdMargin() {
+  const cost=parseFloat(document.getElementById('prod-cost').value)||0;
+  const price=parseFloat(document.getElementById('prod-price').value)||0;
+  const margin=calcMargin(cost, price);
+  const el=document.getElementById('prod-margin');
+  if(margin===null){ el.value=''; return; }
+  el.value=margin.toFixed(1)+'%';
+  el.style.color = margin<0 ? 'var(--red)' : 'var(--accent2)';
+}
 async function addProduct() {
   const code=document.getElementById('prod-code').value.trim();
   const name=document.getElementById('prod-name').value.trim();
+  const cost=parseFloat(document.getElementById('prod-cost').value)||0;
   const price=parseFloat(document.getElementById('prod-price').value)||0;
   if(!code||!name) return showToast('Preencha código e nome!',true);
   if(data.products.find(p=>p.code===code)) return showToast('Código já existe!',true);
-  const {error}=await db.from('products').insert({code,name,price,user_id:currentUser.id});
+  const {error}=await db.from('products').insert({code,name,price,cost,user_id:currentUser.id});
   if(error) return showToast('Erro ao salvar: '+error.message,true);
-  data.products.push({code,name,price});
+  data.products.push({code,name,price,cost});
   refreshAll();
   document.getElementById('prod-code').value='';
   document.getElementById('prod-name').value='';
+  document.getElementById('prod-cost').value='';
   document.getElementById('prod-price').value='';
+  document.getElementById('prod-margin').value='';
   showToast('Produto cadastrado!');
 }
 async function deleteProduct(code) {
@@ -1292,13 +1316,19 @@ async function deleteProduct(code) {
 function renderProducts() {
   const tb=document.getElementById('products-table');
   if(!tb) return;
-  if(!data.products.length){ tb.innerHTML='<tr><td colspan="4" class="empty"><div class="empty-icon">📦</div><p>Nenhum produto cadastrado.</p></td></tr>'; return; }
-  tb.innerHTML=data.products.map(p=>`<tr>
+  if(!data.products.length){ tb.innerHTML='<tr><td colspan="6" class="empty"><div class="empty-icon">📦</div><p>Nenhum produto cadastrado.</p></td></tr>'; return; }
+  tb.innerHTML=data.products.map(p=>{
+    const margin=calcMargin(p.cost, p.price);
+    const marginStr = margin===null ? '<span style="color:var(--muted)">—</span>' : `<span style="color:${margin<0?'var(--red)':'var(--accent2)'};font-weight:700">${margin.toFixed(1)}%</span>`;
+    return `<tr>
     <td><code style="color:var(--accent2)">${p.code}</code></td>
     <td>${p.name}</td>
+    <td style="font-family:'Space Mono';color:var(--muted)">${p.cost ? fmtMoney(p.cost) : '—'}</td>
     <td style="font-family:'Space Mono'">${fmtMoney(p.price)}</td>
+    <td style="font-family:'Space Mono'">${marginStr}</td>
     <td><button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.code}')">✕</button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 }
 
 // ===== SELECTS =====
@@ -1745,6 +1775,17 @@ function renderReport() {
     const payments=mvs.filter(m=>m.type==='pagamento');
     const totalSales=sales.reduce((s,m)=>s+m.total,0);
     const totalPay=payments.reduce((s,m)=>s+m.total,0);
+    // lucro líquido: receita das vendas - custo dos produtos vendidos
+    const totalCost = sales.reduce((s,m)=>{
+      const prod = data.products.find(p=>p.code===m.productCode);
+      const unitCost = prod ? (prod.cost||0) : 0;
+      return s + (unitCost * m.qty);
+    },0);
+    const netProfit = totalSales - totalCost;
+    const hasCostData = sales.some(m=>{
+      const prod = data.products.find(p=>p.code===m.productCode);
+      return prod && prod.cost > 0;
+    });
     // group by client
     const byClient={};
     sales.forEach(m=>{
@@ -1766,8 +1807,10 @@ function renderReport() {
           <div class="hstat"><div class="hstat-val" style="color:var(--green)">${fmtMoney(totalPay)}</div><div class="hstat-lbl">Total Recebido</div></div>
           <div class="hstat"><div class="hstat-val" style="color:var(--accent2)">${fmtMoney(totalSales-totalPay)}</div><div class="hstat-lbl">Saldo em Aberto</div></div>
           <div class="hstat"><div class="hstat-val">${sales.length}</div><div class="hstat-lbl">Nº Vendas</div></div>
+          <div class="hstat"><div class="hstat-val" style="color:${netProfit<0?'var(--red)':'var(--green)'}">${hasCostData?fmtMoney(netProfit):'—'}</div><div class="hstat-lbl">Lucro Líquido</div></div>
         </div>
       </div>
+      ${!hasCostData?`<div class="migration-banner" style="margin-bottom:1.25rem"><p>💡 Cadastre o preço de custo dos produtos na aba <strong>Produtos</strong> para ver o lucro líquido aqui.</p></div>`:''}
       <div class="section-title" style="font-size:1.2rem">Resumo por Cliente</div>
       ${rows.length?`<div class="table-wrap" style="margin-bottom:1.5rem"><table>
         <thead><tr><th>Cliente</th><th>Vendas</th><th>Pagamentos</th><th>Saldo do Período</th></tr></thead>
