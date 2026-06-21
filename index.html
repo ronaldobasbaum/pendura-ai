@@ -21,8 +21,23 @@
     --muted: #888;
     --danger-bg: #1a0a00;
   }
+  body[data-theme="light"] {
+    --bg: #f5f4f1;
+    --surface: #ffffff;
+    --card: #ffffff;
+    --border: #e2e0db;
+    --accent: #ff4d00;
+    --accent2: #d98c00;
+    --green: #00a352;
+    --red: #d9223f;
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --danger-bg: #fff0e8;
+  }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; }
+  body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; transition:background .2s,color .2s; }
+  .theme-toggle { background:transparent; border:1px solid var(--border); color:var(--muted); width:36px; height:36px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:1.05rem; transition:.2s; }
+  .theme-toggle:hover { border-color:var(--accent); color:var(--accent); }
 
   /* HEADER */
   header {
@@ -402,6 +417,7 @@
     </div>
   </div>
   <div class="user-info" id="user-info" style="display:none">
+    <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙</button>
     <span class="user-name" id="user-name-display"></span>
     <button class="btn-pw-change" onclick="openModal('modal-change-pw')" title="Alterar senha">🔑</button>
     <button class="btn-logout" onclick="signOut()">Sair</button>
@@ -2611,6 +2627,24 @@ async function migrateData() {
 }
 
 // ===== INIT =====
+// ===== TEMA CLARO/ESCURO =====
+function applyTheme(theme) {
+  document.body.setAttribute('data-theme', theme);
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = theme === 'light' ? '☀️' : '🌙';
+}
+function toggleTheme() {
+  const current = document.body.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const next = current === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('pendura-theme', next); } catch(e) {}
+}
+function initTheme() {
+  let saved = 'dark';
+  try { saved = localStorage.getItem('pendura-theme') || 'dark'; } catch(e) {}
+  applyTheme(saved);
+}
+
 function refreshAll() {
   populateSelects();
   renderClients();
@@ -2621,6 +2655,8 @@ function refreshAll() {
   renderReport();
   updatePayDebt();
 }
+
+initTheme();
 
 // Set default dates
 document.getElementById('sale-date').value = today();
