@@ -356,6 +356,19 @@
   .badge-order-pronto   { background:rgba(0,230,118,.12); color:var(--green);   border:1px solid rgba(0,230,118,.25); }
   .badge-order-entregue { background:rgba(136,136,136,.1); color:var(--muted);  border:1px solid rgba(136,136,136,.2); }
   .order-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+  .order-item-row { display:grid; grid-template-columns:2fr 80px 110px 32px; gap:.5rem; align-items:center; margin-bottom:.5rem; }
+  .order-item-row select, .order-item-row input { padding:.5rem .7rem; font-size:.85rem; }
+  .order-item-remove { background:var(--red); color:#fff; border:none; border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:.9rem; line-height:1; }
+  .order-item-remove:hover { background:#e0334d; }
+  .order-items-mini { font-size:.78rem; color:var(--muted); margin-top:.3rem; }
+  .order-items-mini div { padding:.15rem 0; }
+  @media(max-width:640px) {
+    .order-item-row { grid-template-columns:1fr 1fr; grid-template-areas:"prod prod" "qty price" "remove remove"; }
+    .order-item-row select { grid-area:prod; }
+    .order-item-row input:nth-of-type(1) { grid-area:qty; }
+    .order-item-row input:nth-of-type(2) { grid-area:price; }
+    .order-item-remove { grid-area:remove; width:100%; }
+  }
   @media(max-width:640px) {
     .order-card { flex-direction:column; align-items:flex-start; padding:1rem; gap:.6rem; }
     .order-info { width:100%; }
@@ -666,31 +679,22 @@
       </select>
     </div>
     <div class="form-group">
-      <label>Produto</label>
-      <select id="order-product" onchange="onOrderProductChange()">
-        <option value="">Selecione o produto...</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Preço Unitário (R$)</label>
-      <input type="number" id="order-unit-price" placeholder="0,00" step="0.01" min="0">
-    </div>
-    <div class="form-group">
-      <label>Quantidade</label>
-      <input type="number" id="order-qty" value="1" min="1">
-    </div>
-    <div class="form-group">
       <label>Data de Entrega Prevista</label>
       <input type="date" id="order-delivery-date">
     </div>
-    <div class="form-group">
-      <label>Observação</label>
+    <div class="form-group" style="grid-column:1/-1">
+      <label>Observação Geral</label>
       <input type="text" id="order-obs" placeholder="Opcional...">
     </div>
-    <div class="form-group" style="justify-content:flex-end;">
-      <label>&nbsp;</label>
-      <button class="btn btn-primary" onclick="addOrder()">📦 Registrar Encomenda</button>
-    </div>
+  </div>
+
+  <div class="section-title" style="font-size:1.1rem;margin-top:1rem">Itens do Pedido</div>
+  <div id="order-items-list"></div>
+  <button class="btn btn-secondary" style="margin-top:.5rem" onclick="addOrderItemRow()">➕ Adicionar Item</button>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+    <div style="font-family:'Space Mono';font-size:1.2rem;font-weight:700">Total: <span id="order-total-display" style="color:var(--accent2)">R$ 0,00</span></div>
+    <button class="btn btn-primary" onclick="addOrder()">📦 Registrar Encomenda</button>
   </div>
 
   <hr>
@@ -880,7 +884,7 @@
 
 <!-- MODAL EDITAR ENCOMENDA -->
 <div id="modal-edit-order" class="modal-overlay">
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:520px">
     <h2>✏️ Editar Encomenda</h2>
     <input type="hidden" id="edit-order-id">
     <div class="form-grid" style="grid-template-columns:1fr 1fr">
@@ -891,28 +895,18 @@
         </select>
       </div>
       <div class="form-group" style="grid-column:1/-1">
-        <label>Produto</label>
-        <select id="edit-order-product" onchange="onEditOrderProductChange()">
-          <option value="">Selecione o produto...</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Preço Unitário (R$)</label>
-        <input type="number" id="edit-order-unit-price" placeholder="0,00" step="0.01" min="0">
-      </div>
-      <div class="form-group">
-        <label>Quantidade</label>
-        <input type="number" id="edit-order-qty" value="1" min="1">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
         <label>Data de Entrega Prevista</label>
         <input type="date" id="edit-order-delivery-date">
       </div>
       <div class="form-group" style="grid-column:1/-1">
-        <label>Observação</label>
+        <label>Observação Geral</label>
         <input type="text" id="edit-order-obs" placeholder="Opcional...">
       </div>
     </div>
+    <div class="section-title" style="font-size:1rem;margin-top:.5rem">Itens do Pedido</div>
+    <div id="edit-order-items-list"></div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="addEditOrderItemRow()">➕ Adicionar Item</button>
+    <div style="text-align:right;margin-top:1rem;font-family:'Space Mono';font-weight:700">Total: <span id="edit-order-total-display" style="color:var(--accent2)">R$ 0,00</span></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-order')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveEditOrder()">💾 Salvar</button>
@@ -1207,25 +1201,41 @@ function showLoading(v) { document.getElementById('loading-overlay').style.displ
 async function loadAll() {
   showLoading(true);
   try {
-    const [cr, pr, mr, or_] = await Promise.all([
+    const [cr, pr, mr, or_, oi_] = await Promise.all([
       db.from('clients').select('*').eq('user_id', currentUser.id).order('created_at'),
       db.from('products').select('*').eq('user_id', currentUser.id).order('created_at'),
       db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(0, 49),
-      db.from('orders').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false })
+      db.from('orders').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+      db.from('order_items').select('*')
     ]);
     if (cr.error || pr.error || mr.error) {
       showToast('Erro ao carregar dados do servidor!', true);
       console.error(cr.error, pr.error, mr.error);
     }
     if (or_.error) console.warn('Erro ao carregar encomendas (tabela pode não existir ainda):', or_.error);
+    if (oi_.error) console.warn('Erro ao carregar itens de encomendas (tabela pode não existir ainda):', oi_.error);
     data.clients = (cr.data || []).map(c => ({ code:c.code, name:c.name, phone:c.phone, createdAt:c.created_at }));
     data.products = (pr.data || []).map(p => ({ code:p.code, name:p.name, price:Number(p.price), cost:Number(p.cost)||0 }));
-    data.orders = (or_.data || []).map(o => ({
-      id:o.id, clientCode:o.client_code, clientName:o.client_name,
-      productCode:o.product_code, productName:o.product_name,
-      qty:Number(o.qty), unitPrice:Number(o.unit_price), total:Number(o.total),
-      deliveryDate:o.delivery_date, obs:o.obs, status:o.status, createdAt:o.created_at
+    const allOrderItems = (oi_.data || []).map(it => ({
+      id:it.id, orderId:it.order_id, productCode:it.product_code, productName:it.product_name,
+      qty:Number(it.qty), unitPrice:Number(it.unit_price), total:Number(it.total)
     }));
+    data.orders = (or_.data || []).map(o => {
+      let items = allOrderItems.filter(it => it.orderId === o.id);
+      // Migração automática: encomenda antiga (formato 1-produto) sem itens cadastrados
+      if (!items.length && o.product_code) {
+        items = [{
+          id: 'legacy-'+o.id, orderId: o.id,
+          productCode: o.product_code, productName: o.product_name,
+          qty: Number(o.qty)||1, unitPrice: Number(o.unit_price)||0, total: Number(o.total)||0
+        }];
+      }
+      return {
+        id:o.id, clientCode:o.client_code, clientName:o.client_name,
+        total:Number(o.total), deliveryDate:o.delivery_date, obs:o.obs, status:o.status,
+        createdAt:o.created_at, items
+      };
+    });
     const rawMovements = (mr.data || []).map(m => ({
       id:m.id, type:m.type, clientCode:m.client_code, clientName:m.client_name,
       productCode:m.product_code, productName:m.product_name,
@@ -1456,10 +1466,9 @@ function populateSelects() {
   });
   const sp=document.getElementById('sale-product');
   if(sp){ const v=sp.value; sp.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); sp.value=v; }
-  const op=document.getElementById('order-product');
-  if(op){ const v=op.value; op.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); op.value=v; }
-  const eop=document.getElementById('edit-order-product');
-  if(eop){ const v=eop.value; eop.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); eop.value=v; }
+  // re-renderiza linhas de itens de encomenda (caso a lista de produtos tenha mudado)
+  if (document.getElementById('order-items-list')) renderNewOrderItems();
+  if (document.getElementById('edit-order-items-list')) renderEditOrderItems();
 }
 
 // ===== SALES =====
@@ -2036,17 +2045,156 @@ async function deleteUser(userId, userName) {
 }
 
 
-// ===== ENCOMENDAS =====
-function onOrderProductChange() {
-  const productCode = document.getElementById('order-product').value;
-  const prod = data.products.find(p => p.code === productCode);
-  document.getElementById('order-unit-price').value = prod ? prod.price : '';
+// ===== ENCOMENDAS (multi-item) =====
+let newOrderItems = [];   // [{rowId, productCode, qty, unitPrice}]
+let editOrderItems = [];  // idem, para o modal de edição
+let newOrderRowSeq = 0;
+let editOrderRowSeq = 0;
+
+function productOptionsHtml(selectedCode) {
+  return '<option value="">Selecione...</option>' + data.products.map(p =>
+    `<option value="${p.code}" ${p.code===selectedCode?'selected':''}>${p.code} — ${p.name}</option>`
+  ).join('');
 }
 
-function onEditOrderProductChange() {
-  const productCode = document.getElementById('edit-order-product').value;
+// ---- NOVA ENCOMENDA ----
+function addOrderItemRow(productCode, qty, unitPrice) {
+  const rowId = 'ni' + (newOrderRowSeq++);
+  newOrderItems.push({ rowId, productCode: productCode||'', qty: qty||1, unitPrice: unitPrice!=null?unitPrice:'' });
+  renderNewOrderItems();
+}
+function removeOrderItemRow(rowId) {
+  newOrderItems = newOrderItems.filter(it => it.rowId !== rowId);
+  renderNewOrderItems();
+}
+function onOrderItemProductChange(rowId, productCode) {
+  const it = newOrderItems.find(i => i.rowId === rowId);
+  if (!it) return;
+  it.productCode = productCode;
   const prod = data.products.find(p => p.code === productCode);
-  document.getElementById('edit-order-unit-price').value = prod ? prod.price : '';
+  it.unitPrice = prod ? prod.price : '';
+  renderNewOrderItems();
+}
+function onOrderItemQtyChange(rowId, val) {
+  const it = newOrderItems.find(i => i.rowId === rowId);
+  if (it) it.qty = parseInt(val) || 1;
+  updateOrderTotalDisplay();
+}
+function onOrderItemPriceChange(rowId, val) {
+  const it = newOrderItems.find(i => i.rowId === rowId);
+  if (it) it.unitPrice = parseFloat(val);
+  updateOrderTotalDisplay();
+}
+function renderNewOrderItems() {
+  const list = document.getElementById('order-items-list');
+  if (!list) return;
+  if (!newOrderItems.length) {
+    list.innerHTML = '<p style="font-size:.82rem;color:var(--muted);padding:.5rem 0">Nenhum item adicionado. Clique em "Adicionar Item".</p>';
+  } else {
+    list.innerHTML = newOrderItems.map(it => `
+      <div class="order-item-row">
+        <select onchange="onOrderItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
+        <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onOrderItemQtyChange('${it.rowId}', this.value)">
+        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onOrderItemPriceChange('${it.rowId}', this.value)">
+        <button class="order-item-remove" onclick="removeOrderItemRow('${it.rowId}')">✕</button>
+      </div>`).join('');
+  }
+  updateOrderTotalDisplay();
+}
+function updateOrderTotalDisplay() {
+  const total = newOrderItems.reduce((s,it)=> s + (parseFloat(it.unitPrice)||0)*(parseInt(it.qty)||0), 0);
+  const el = document.getElementById('order-total-display');
+  if (el) el.textContent = fmtMoney(total);
+}
+
+async function addOrder() {
+  const clientCode = document.getElementById('order-client').value;
+  const deliveryDate = document.getElementById('order-delivery-date').value || null;
+  const obs = document.getElementById('order-obs').value.trim();
+  if (!clientCode) return showToast('Selecione um cliente!', true);
+  const validItems = newOrderItems.filter(it => it.productCode && !isNaN(parseFloat(it.unitPrice)) && parseFloat(it.unitPrice)>=0 && (parseInt(it.qty)||0)>0);
+  if (!validItems.length) return showToast('Adicione ao menos um item válido!', true);
+  const cli = data.clients.find(c => c.code === clientCode);
+  const total = validItems.reduce((s,it)=> s + parseFloat(it.unitPrice)*parseInt(it.qty), 0);
+  const id = 'O' + Date.now();
+  const { error } = await db.from('orders').insert({
+    id, client_code: clientCode, client_name: cli.name,
+    total, delivery_date: deliveryDate, obs, status: 'pendente',
+    user_id: currentUser.id
+  });
+  if (error) return showToast('Erro ao salvar: ' + error.message, true);
+  const itemsPayload = validItems.map(it => {
+    const prod = data.products.find(p=>p.code===it.productCode);
+    return {
+      id: 'OI'+Date.now()+Math.random().toString(36).slice(2,6),
+      order_id: id, product_code: it.productCode, product_name: prod?prod.name:it.productCode,
+      qty: parseInt(it.qty), unit_price: parseFloat(it.unitPrice), total: parseFloat(it.unitPrice)*parseInt(it.qty)
+    };
+  });
+  const { error: errItems } = await db.from('order_items').insert(itemsPayload);
+  if (errItems) return showToast('Erro ao salvar itens: ' + errItems.message, true);
+  data.orders.unshift({
+    id, clientCode, clientName: cli.name, total, deliveryDate, obs, status: 'pendente',
+    createdAt: new Date().toISOString(),
+    items: itemsPayload.map(it => ({ id:it.id, productCode:it.product_code, productName:it.product_name, qty:it.qty, unitPrice:it.unit_price, total:it.total }))
+  });
+  refreshAll();
+  document.getElementById('order-client').value = '';
+  document.getElementById('order-delivery-date').value = '';
+  document.getElementById('order-obs').value = '';
+  newOrderItems = [];
+  renderNewOrderItems();
+  showToast(`Encomenda de ${cli.name} registrada com ${itemsPayload.length} item(ns)!`);
+}
+
+// ---- EDITAR ENCOMENDA ----
+function addEditOrderItemRow(productCode, qty, unitPrice) {
+  const rowId = 'ei' + (editOrderRowSeq++);
+  editOrderItems.push({ rowId, productCode: productCode||'', qty: qty||1, unitPrice: unitPrice!=null?unitPrice:'' });
+  renderEditOrderItems();
+}
+function removeEditOrderItemRow(rowId) {
+  editOrderItems = editOrderItems.filter(it => it.rowId !== rowId);
+  renderEditOrderItems();
+}
+function onEditOrderItemProductChange(rowId, productCode) {
+  const it = editOrderItems.find(i => i.rowId === rowId);
+  if (!it) return;
+  it.productCode = productCode;
+  const prod = data.products.find(p => p.code === productCode);
+  it.unitPrice = prod ? prod.price : '';
+  renderEditOrderItems();
+}
+function onEditOrderItemQtyChange(rowId, val) {
+  const it = editOrderItems.find(i => i.rowId === rowId);
+  if (it) it.qty = parseInt(val) || 1;
+  updateEditOrderTotalDisplay();
+}
+function onEditOrderItemPriceChange(rowId, val) {
+  const it = editOrderItems.find(i => i.rowId === rowId);
+  if (it) it.unitPrice = parseFloat(val);
+  updateEditOrderTotalDisplay();
+}
+function renderEditOrderItems() {
+  const list = document.getElementById('edit-order-items-list');
+  if (!list) return;
+  if (!editOrderItems.length) {
+    list.innerHTML = '<p style="font-size:.82rem;color:var(--muted);padding:.5rem 0">Nenhum item. Clique em "Adicionar Item".</p>';
+  } else {
+    list.innerHTML = editOrderItems.map(it => `
+      <div class="order-item-row">
+        <select onchange="onEditOrderItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
+        <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onEditOrderItemQtyChange('${it.rowId}', this.value)">
+        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onEditOrderItemPriceChange('${it.rowId}', this.value)">
+        <button class="order-item-remove" onclick="removeEditOrderItemRow('${it.rowId}')">✕</button>
+      </div>`).join('');
+  }
+  updateEditOrderTotalDisplay();
+}
+function updateEditOrderTotalDisplay() {
+  const total = editOrderItems.reduce((s,it)=> s + (parseFloat(it.unitPrice)||0)*(parseInt(it.qty)||0), 0);
+  const el = document.getElementById('edit-order-total-display');
+  if (el) el.textContent = fmtMoney(total);
 }
 
 function openEditOrder(orderId) {
@@ -2054,82 +2202,49 @@ function openEditOrder(orderId) {
   if (!o) return;
   document.getElementById('edit-order-id').value = o.id;
   document.getElementById('edit-order-client').value = o.clientCode;
-  document.getElementById('edit-order-product').value = o.productCode;
-  document.getElementById('edit-order-unit-price').value = o.unitPrice;
-  document.getElementById('edit-order-qty').value = o.qty;
   document.getElementById('edit-order-delivery-date').value = o.deliveryDate || '';
   document.getElementById('edit-order-obs').value = o.obs || '';
+  editOrderItems = (o.items || []).map(it => ({ rowId: 'ei'+(editOrderRowSeq++), productCode: it.productCode, qty: it.qty, unitPrice: it.unitPrice }));
+  renderEditOrderItems();
   document.getElementById('modal-edit-order').classList.add('open');
 }
 
 async function saveEditOrder() {
   const orderId = document.getElementById('edit-order-id').value;
   const clientCode = document.getElementById('edit-order-client').value;
-  const productCode = document.getElementById('edit-order-product').value;
-  const qty = parseInt(document.getElementById('edit-order-qty').value) || 1;
-  const unitPriceRaw = parseFloat(document.getElementById('edit-order-unit-price').value);
   const deliveryDate = document.getElementById('edit-order-delivery-date').value || null;
   const obs = document.getElementById('edit-order-obs').value.trim();
   if (!clientCode) return showToast('Selecione um cliente!', true);
-  if (!productCode) return showToast('Selecione um produto!', true);
-  if (isNaN(unitPriceRaw) || unitPriceRaw < 0) return showToast('Informe um preço válido!', true);
-  const prod = data.products.find(p => p.code === productCode);
+  const validItems = editOrderItems.filter(it => it.productCode && !isNaN(parseFloat(it.unitPrice)) && parseFloat(it.unitPrice)>=0 && (parseInt(it.qty)||0)>0);
+  if (!validItems.length) return showToast('Adicione ao menos um item válido!', true);
   const cli = data.clients.find(c => c.code === clientCode);
-  const total = unitPriceRaw * qty;
+  const total = validItems.reduce((s,it)=> s + parseFloat(it.unitPrice)*parseInt(it.qty), 0);
   const { error } = await db.from('orders').update({
-    client_code: clientCode, client_name: cli.name,
-    product_code: productCode, product_name: prod.name,
-    qty, unit_price: unitPriceRaw, total,
-    delivery_date: deliveryDate, obs
+    client_code: clientCode, client_name: cli.name, total, delivery_date: deliveryDate, obs
   }).eq('id', orderId).eq('user_id', currentUser.id);
   if (error) return showToast('Erro ao salvar: ' + error.message, true);
+  // Substitui os itens: apaga os antigos e insere os novos
+  const { error: errDel } = await db.from('order_items').delete().eq('order_id', orderId);
+  if (errDel) return showToast('Erro ao atualizar itens: ' + errDel.message, true);
+  const itemsPayload = validItems.map(it => {
+    const prod = data.products.find(p=>p.code===it.productCode);
+    return {
+      id: 'OI'+Date.now()+Math.random().toString(36).slice(2,6),
+      order_id: orderId, product_code: it.productCode, product_name: prod?prod.name:it.productCode,
+      qty: parseInt(it.qty), unit_price: parseFloat(it.unitPrice), total: parseFloat(it.unitPrice)*parseInt(it.qty)
+    };
+  });
+  const { error: errItems } = await db.from('order_items').insert(itemsPayload);
+  if (errItems) return showToast('Erro ao salvar itens: ' + errItems.message, true);
   const o = data.orders.find(o => o.id === orderId);
   if (o) {
-    o.clientCode = clientCode; o.clientName = cli.name;
-    o.productCode = productCode; o.productName = prod.name;
-    o.qty = qty; o.unitPrice = unitPriceRaw; o.total = total;
+    o.clientCode = clientCode; o.clientName = cli.name; o.total = total;
     o.deliveryDate = deliveryDate; o.obs = obs;
+    o.items = itemsPayload.map(it => ({ id:it.id, productCode:it.product_code, productName:it.product_name, qty:it.qty, unitPrice:it.unit_price, total:it.total }));
   }
   closeModal('modal-edit-order');
   refreshAll();
   showToast('Encomenda atualizada!');
-}
-
-async function addOrder() {
-  const clientCode = document.getElementById('order-client').value;
-  const productCode = document.getElementById('order-product').value;
-  const qty = parseInt(document.getElementById('order-qty').value) || 1;
-  const unitPriceRaw = parseFloat(document.getElementById('order-unit-price').value);
-  const deliveryDate = document.getElementById('order-delivery-date').value || null;
-  const obs = document.getElementById('order-obs').value.trim();
-  if (!clientCode) return showToast('Selecione um cliente!', true);
-  if (!productCode) return showToast('Selecione um produto!', true);
-  if (isNaN(unitPriceRaw) || unitPriceRaw < 0) return showToast('Informe um preço válido!', true);
-  const prod = data.products.find(p => p.code === productCode);
-  const cli  = data.clients.find(c => c.code === clientCode);
-  const total = unitPriceRaw * qty;
-  const id = 'O' + Date.now();
-  const { error } = await db.from('orders').insert({
-    id, client_code: clientCode, client_name: cli.name,
-    product_code: productCode, product_name: prod.name,
-    qty, unit_price: unitPriceRaw, total,
-    delivery_date: deliveryDate, obs, status: 'pendente',
-    user_id: currentUser.id
-  });
-  if (error) return showToast('Erro ao salvar: ' + error.message, true);
-  data.orders.unshift({
-    id, clientCode, clientName: cli.name, productCode, productName: prod.name,
-    qty, unitPrice: unitPriceRaw, total, deliveryDate, obs, status: 'pendente',
-    createdAt: new Date().toISOString()
-  });
-  refreshAll();
-  document.getElementById('order-client').value = '';
-  document.getElementById('order-product').value = '';
-  document.getElementById('order-unit-price').value = '';
-  document.getElementById('order-qty').value = 1;
-  document.getElementById('order-delivery-date').value = '';
-  document.getElementById('order-obs').value = '';
-  showToast(`Encomenda de ${cli.name} registrada!`);
 }
 
 async function updateOrderStatus(orderId, newStatus) {
@@ -2146,8 +2261,9 @@ function openEntregarModal(orderId) {
   const o = data.orders.find(o => o.id === orderId);
   if (!o) return;
   document.getElementById('mentregar-order-id').value = orderId;
+  const itemsDesc = (o.items||[]).map(it => `${it.productName} x${it.qty}`).join(', ');
   document.getElementById('mentregar-desc').textContent =
-    `${o.clientName} — ${o.productName} x${o.qty} (${fmtMoney(o.total)})`;
+    `${o.clientName} — ${itemsDesc} (${fmtMoney(o.total)})`;
   document.getElementById('mentregar-date').value = today();
   document.getElementById('mentregar-obs').value = '';
   document.getElementById('modal-entregar').classList.add('open');
@@ -2159,34 +2275,36 @@ async function confirmEntrega() {
   const date = document.getElementById('mentregar-date').value || today();
   const obs = document.getElementById('mentregar-obs').value.trim();
   const o = data.orders.find(o => o.id === orderId);
-  if (!o) return;
+  if (!o || !o.items || !o.items.length) return showToast('Encomenda sem itens!', true);
   // 1. Marcar encomenda como entregue
   const { error: errOrder } = await db.from('orders')
     .update({ status: 'entregue' })
     .eq('id', orderId).eq('user_id', currentUser.id);
   if (errOrder) return showToast('Erro ao atualizar encomenda: ' + errOrder.message, true);
-  // 2. Lançar como venda/dívida no fiado
-  const movId = 'M' + Date.now();
+  // 2. Lançar uma venda no fiado para CADA item do pedido
   const obsMovimento = ['Encomenda entregue', o.obs, obs].filter(Boolean).join(' | ');
-  const { error: errMov } = await db.from('movements').insert({
-    id: movId, type: 'venda',
-    client_code: o.clientCode, client_name: o.clientName,
-    product_code: o.productCode, product_name: o.productName,
-    qty: o.qty, unit_price: o.unitPrice, total: o.total,
+  const movPayload = o.items.map((it, idx) => ({
+    id: 'M' + Date.now() + idx,
+    type: 'venda', client_code: o.clientCode, client_name: o.clientName,
+    product_code: it.productCode, product_name: it.productName,
+    qty: it.qty, unit_price: it.unitPrice, total: it.total,
     date, obs: obsMovimento, user_id: currentUser.id
-  });
+  }));
+  const { error: errMov } = await db.from('movements').insert(movPayload);
   if (errMov) return showToast('Erro ao lançar no fiado: ' + errMov.message, true);
   // Atualiza state local
   o.status = 'entregue';
-  data.movements.unshift({
-    id: movId, type: 'venda', clientCode: o.clientCode, clientName: o.clientName,
-    productCode: o.productCode, productName: o.productName,
-    qty: o.qty, unitPrice: o.unitPrice, total: o.total,
-    date, obs: obsMovimento, createdAt: new Date().toISOString()
+  movPayload.forEach(m => {
+    data.movements.unshift({
+      id: m.id, type: 'venda', clientCode: m.client_code, clientName: m.client_name,
+      productCode: m.product_code, productName: m.product_name,
+      qty: m.qty, unitPrice: m.unit_price, total: m.total,
+      date: m.date, obs: m.obs, createdAt: new Date().toISOString()
+    });
   });
   closeModal('modal-entregar');
   refreshAll();
-  showToast(`Entregue! R$ ${fmtMoney(o.total)} lançado no fiado de ${o.clientName}.`);
+  showToast(`Entregue! R$ ${fmtMoney(o.total)} lançado no fiado de ${o.clientName} (${o.items.length} ${o.items.length>1?'itens':'item'}).`);
 }
 
 async function deleteOrder(orderId) {
@@ -2223,6 +2341,9 @@ function renderOrders() {
     const entregaStr = o.deliveryDate ? fmtDate(o.deliveryDate) : '—';
     const isVencido = o.status !== 'entregue' && o.deliveryDate && o.deliveryDate < today();
     const entregaStyle = isVencido ? 'color:var(--red)' : '';
+    const items = o.items || [];
+    const itemsSummary = items.length ? `${items.length} ${items.length>1?'itens':'item'}` : 'sem itens';
+    const itemsMini = items.map(it => `<div>• ${it.productName} — ${it.qty}x ${fmtMoney(it.unitPrice)}</div>`).join('');
     let actions = '';
     if (o.status === 'pendente') {
       actions = `
@@ -2242,7 +2363,8 @@ function renderOrders() {
     return `<div class="order-card status-${o.status}">
       <div class="order-info">
         <h3>${o.clientName} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${o.clientCode}</small></h3>
-        <p>${o.productName} — <strong>${o.qty}x ${fmtMoney(o.unitPrice)}</strong>${o.obs ? ' | ' + o.obs : ''}</p>
+        <p><strong>${itemsSummary}</strong>${o.obs ? ' | ' + o.obs : ''}</p>
+        <div class="order-items-mini">${itemsMini}</div>
       </div>
       <div class="order-meta">
         <div class="order-meta-item">
