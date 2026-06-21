@@ -663,6 +663,7 @@
       <input type="month" id="report-month" onchange="renderReport()">
     </div>
     <button class="btn btn-secondary" onclick="printReport()">🖨️ Imprimir</button>
+    <button class="btn btn-primary" onclick="shareReportPdf()">📲 Compartilhar PDF</button>
   </div>
 
   <div id="report-output"></div>
@@ -1030,6 +1031,7 @@
 </div>
 
 <script src="supabase_min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 // ===== SUPABASE =====
 const SUPABASE_URL = 'https://tpdwmbokgtrztilluloa.supabase.co';
@@ -1967,6 +1969,206 @@ function renderReport() {
 }
 
 function printReport() { window.print(); }
+
+// ===== PDF / COMPARTILHAR =====
+function pdfHeader(doc, title, subtitle) {
+  doc.setFillColor(255, 77, 0);
+  doc.rect(0, 0, 210, 22, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('Pendura Aí', 14, 14);
+  doc.setTextColor(20, 20, 20);
+  doc.setFontSize(13);
+  doc.text(title, 14, 32);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(110, 110, 110);
+  doc.text(subtitle, 14, 38);
+  doc.setTextColor(20, 20, 20);
+  return 46;
+}
+function pdfFooter(doc) {
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} — Página ${i}/${pageCount}`, 14, 290);
+  }
+}
+function pdfCheckPageBreak(doc, y, needed) {
+  if (y + needed > 280) { doc.addPage(); return 20; }
+  return y;
+}
+
+async function sharePdfBlob(doc, filename) {
+  const blob = doc.output('blob');
+  const file = new File([blob], filename, { type: 'application/pdf' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  // Fallback: baixar o arquivo
+  doc.save(filename);
+  showToast('PDF baixado! Envie pelo WhatsApp manualmente.');
+}
+
+function shareReportPdf() {
+  const type = document.getElementById('report-type').value;
+  if (type === 'debts') return buildDebtsPdf();
+  if (type === 'daily') return buildDailyPdf();
+  return buildMonthlyPdf();
+}
+
+function buildDebtsPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const clientsWithDebt = [...data.clients].map(c => {
+    const mvs = data.movements.filter(m => m.clientCode === c.code);
+    const totalSales = mvs.filter(m => m.type === 'venda').reduce((s, m) => s + m.total, 0);
+    const totalPay = mvs.filter(m => m.type === 'pagamento').reduce((s, m) => s + m.total, 0);
+    return { ...c, debt: Math.max(0, totalSales - totalPay) };
+  }).filter(c => c.debt > 0).sort((a, b) => b.debt - a.debt);
+  const totalGeral = clientsWithDebt.reduce((s, c) => s + c.debt, 0);
+
+  let y = pdfHeader(doc, 'Relatório de Débitos por Cliente', `Saldo em aberto • ${clientsWithDebt.length} cliente(s) devendo`);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Total em Aberto: ${fmtMoney(totalGeral)}`, 14, y);
+  y += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+
+  if (!clientsWithDebt.length) {
+    doc.text('Nenhum cliente com débito em aberto.', 14, y);
+  } else {
+    clientsWithDebt.forEach(c => {
+      y = pdfCheckPageBreak(doc, y, 8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(c.name, 14, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(255, 61, 90);
+      doc.text(fmtMoney(c.debt), 196, y, { align: 'right' });
+      doc.setTextColor(20, 20, 20);
+      if (c.phone) { doc.setFontSize(8); doc.setTextColor(130,130,130); doc.text(c.phone, 14, y+4); doc.setFontSize(9); doc.setTextColor(20,20,20); y+=4; }
+      y += 6;
+      doc.setDrawColor(230,230,230);
+      doc.line(14, y-3, 196, y-3);
+    });
+  }
+  pdfFooter(doc);
+  sharePdfBlob(doc, `debitos-${today()}.pdf`);
+}
+
+function buildDailyPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const date = document.getElementById('report-date').value || today();
+  const mvs = data.movements.filter(m => m.date === date);
+  const sales = mvs.filter(m => m.type === 'venda');
+  const payments = mvs.filter(m => m.type === 'pagamento');
+  const totalSales = sales.reduce((s, m) => s + m.total, 0);
+  const totalPay = payments.reduce((s, m) => s + m.total, 0);
+
+  let y = pdfHeader(doc, 'Relatório Diário', fmtDate(date));
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 61, 90); doc.text(`Vendas: ${fmtMoney(totalSales)}`, 14, y);
+  doc.setTextColor(0, 180, 90); doc.text(`Recebido: ${fmtMoney(totalPay)}`, 80, y);
+  doc.setTextColor(20, 20, 20); doc.text(`Transações: ${sales.length}`, 150, y);
+  y += 10;
+
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+  doc.text('Vendas do Dia', 14, y); y += 6;
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  if (!sales.length) { doc.text('Nenhuma venda nesta data.', 14, y); y += 6; }
+  sales.forEach(m => {
+    y = pdfCheckPageBreak(doc, y, 8);
+    doc.setFont('helvetica', 'bold'); doc.text(m.clientName, 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(255,61,90); doc.text(fmtMoney(m.total), 196, y, { align: 'right' });
+    doc.setTextColor(20,20,20);
+    doc.setFontSize(8); doc.setTextColor(130,130,130);
+    doc.text(`${m.productName} • ${m.qty}x ${fmtMoney(m.unitPrice)}`, 14, y+4);
+    doc.setTextColor(20,20,20); doc.setFontSize(9);
+    y += 9;
+  });
+
+  y += 4;
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+  doc.text('Pagamentos do Dia', 14, y); y += 6;
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  if (!payments.length) { doc.text('Nenhum pagamento nesta data.', 14, y); }
+  payments.forEach(m => {
+    y = pdfCheckPageBreak(doc, y, 7);
+    doc.setFont('helvetica', 'bold'); doc.text(m.clientName, 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0,180,90); doc.text(fmtMoney(m.total), 196, y, { align: 'right' });
+    doc.setTextColor(20,20,20);
+    y += 7;
+  });
+
+  pdfFooter(doc);
+  sharePdfBlob(doc, `relatorio-diario-${date}.pdf`);
+}
+
+function buildMonthlyPdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const month = document.getElementById('report-month').value || thisMonth();
+  const mvs = data.movements.filter(m => m.date.startsWith(month));
+  const sales = mvs.filter(m => m.type === 'venda');
+  const payments = mvs.filter(m => m.type === 'pagamento');
+  const totalSales = sales.reduce((s, m) => s + m.total, 0);
+  const totalPay = payments.reduce((s, m) => s + m.total, 0);
+  const totalCost = sales.reduce((s, m) => {
+    const prod = data.products.find(p => p.code === m.productCode);
+    return s + ((prod ? prod.cost || 0 : 0) * m.qty);
+  }, 0);
+  const netProfit = totalSales - totalCost;
+  const [yr, mo] = month.split('-');
+  const months = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+  let y = pdfHeader(doc, 'Relatório Mensal', `${months[parseInt(mo)]} de ${yr}`);
+  doc.setFontSize(9.5); doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255,61,90); doc.text(`Vendido: ${fmtMoney(totalSales)}`, 14, y);
+  doc.setTextColor(0,180,90); doc.text(`Recebido: ${fmtMoney(totalPay)}`, 70, y);
+  doc.setTextColor(230,160,0); doc.text(`Em aberto: ${fmtMoney(totalSales-totalPay)}`, 126, y);
+  y += 6;
+  doc.setTextColor(netProfit<0?255:0, netProfit<0?61:150, netProfit<0?90:70);
+  doc.text(`Lucro Líquido: ${fmtMoney(netProfit)}`, 14, y);
+  doc.setTextColor(20,20,20);
+  y += 10;
+
+  // resumo por cliente
+  const byClient = {};
+  sales.forEach(m => { if(!byClient[m.clientCode]) byClient[m.clientCode]={name:m.clientName,sales:0,payments:0}; byClient[m.clientCode].sales+=m.total; });
+  payments.forEach(m => { if(!byClient[m.clientCode]) byClient[m.clientCode]={name:m.clientName,sales:0,payments:0}; byClient[m.clientCode].payments+=m.total; });
+  const rows = Object.values(byClient).sort((a,b)=>(b.sales-b.payments)-(a.sales-a.payments));
+
+  doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+  doc.text('Resumo por Cliente', 14, y); y += 6;
+  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal');
+  if (!rows.length) { doc.text('Nenhuma movimentação neste mês.', 14, y); y += 6; }
+  rows.forEach(r => {
+    y = pdfCheckPageBreak(doc, y, 6);
+    const saldo = r.sales - r.payments;
+    doc.setFont('helvetica', 'bold'); doc.text(r.name, 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(saldo>0?230:0, saldo>0?160:150, saldo>0?0:70);
+    doc.text(`Saldo: ${fmtMoney(saldo)}`, 196, y, { align: 'right' });
+    doc.setTextColor(20,20,20);
+    y += 6;
+  });
+
+  pdfFooter(doc);
+  sharePdfBlob(doc, `relatorio-mensal-${month}.pdf`);
+}
 
 // ===== ADMIN =====
 async function renderAdminPanel() {
