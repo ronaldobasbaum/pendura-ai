@@ -1047,7 +1047,7 @@
 </div>
 
 <script src="supabase_min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
 <script>
 // ===== SUPABASE =====
 const SUPABASE_URL = 'https://tpdwmbokgtrztilluloa.supabase.co';
@@ -1072,9 +1072,8 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 // ===== STATE =====
 let data = { clients: [], products: [], movements: [], orders: [] };
-let movementsPage = 0;
+let movementsDisplayLimit = 50;
 const MOVEMENTS_PAGE_SIZE = 50;
-let movementsHasMore = false;
 let currentUser = null;
 let currentProfile = null;
 
@@ -1201,7 +1200,11 @@ async function signOut() {
   showAuthScreen('login');
 }
 
-function fmtMoney(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtMoney(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}); }
 function fmtDate(d) { if(!d) return '-'; let p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 function today() { return new Date().toISOString().split('T')[0]; }
 function thisMonth() { return new Date().toISOString().slice(0,7); }
@@ -1222,7 +1225,7 @@ async function loadAll() {
     const [cr, pr, mr, or_, oi_] = await Promise.all([
       db.from('clients').select('*').eq('user_id', currentUser.id).order('created_at'),
       db.from('products').select('*').eq('user_id', currentUser.id).order('created_at'),
-      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(0, 49),
+      db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }),
       db.from('orders').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
       db.from('order_items').select('*')
     ]);
@@ -1260,8 +1263,7 @@ async function loadAll() {
       qty:Number(m.qty), unitPrice:Number(m.unit_price), total:Number(m.total),
       date:m.date, obs:m.obs, createdAt:m.created_at
     }));
-    movementsHasMore = rawMovements.length === MOVEMENTS_PAGE_SIZE;
-    movementsPage = 0;
+    movementsDisplayLimit = MOVEMENTS_PAGE_SIZE;
     data.movements = rawMovements;
     refreshAll();
   } catch (e) {
@@ -1327,7 +1329,7 @@ async function addClient() {
 }
 async function deleteClient(code) {
   if(!confirm('Excluir cliente? Movimentações serão mantidas.')) return;
-  const {error}=await db.from('clients').delete().eq('code',code);
+  const {error}=await db.from('clients').delete().eq('code',code).eq('user_id',currentUser.id);
   if(error) return showToast('Erro ao remover: '+error.message,true);
   data.clients=data.clients.filter(c=>c.code!==code);
   refreshAll(); showToast('Cliente removido.');
@@ -1347,7 +1349,7 @@ async function saveEditClient() {
   const name=document.getElementById('edit-cli-name').value.trim();
   const phone=document.getElementById('edit-cli-phone').value.trim();
   if(!name) return showToast('Nome é obrigatório!',true);
-  const {error}=await db.from('clients').update({name,phone}).eq('code',code).eq('user_id',currentUser.id);
+  const {error}=await db.from('clients').update({name,phone}).eq('code',code).eq('user_id',currentUser.id).eq('user_id',currentUser.id);
   if(error) return showToast('Erro ao salvar: '+error.message,true);
   const c=data.clients.find(c=>c.code===code);
   if(c){ c.name=name; c.phone=phone; }
@@ -1364,8 +1366,8 @@ function renderClients() {
     const badge=debt>0?'<span class="badge badge-overdue">Devendo</span>':'<span class="badge badge-paid">Em dia</span>';
     return `<tr>
       <td><code style="color:var(--accent2)">${c.code}</code></td>
-      <td><strong>${c.name}</strong></td>
-      <td>${c.phone||'-'}</td>
+      <td><strong>${esc(c.name)}</strong></td>
+      <td>${esc(c.phone)||'-'}</td>
       <td style="font-family:'Space Mono';color:${debt>0?'var(--red)':'var(--green)'}">${fmtMoney(debt)}</td>
       <td>${badge}</td>
       <td>
@@ -1448,7 +1450,7 @@ async function addProduct() {
 }
 async function deleteProduct(code) {
   if(!confirm('Excluir produto?')) return;
-  const {error}=await db.from('products').delete().eq('code',code);
+  const {error}=await db.from('products').delete().eq('code',code).eq('user_id',currentUser.id);
   if(error) return showToast('Erro ao remover: '+error.message,true);
   data.products=data.products.filter(p=>p.code!==code);
   refreshAll(); showToast('Produto removido.');
@@ -1462,7 +1464,7 @@ function renderProducts() {
     const marginStr = margin===null ? '<span style="color:var(--muted)">—</span>' : `<span style="color:${margin<0?'var(--red)':'var(--accent2)'};font-weight:700">${margin.toFixed(1)}%</span>`;
     return `<tr>
     <td><code style="color:var(--accent2)">${p.code}</code></td>
-    <td>${p.name}</td>
+    <td>${esc(p.name)}</td>
     <td style="font-family:'Space Mono';color:var(--muted)">${p.cost ? fmtMoney(p.cost) : '—'}</td>
     <td style="font-family:'Space Mono'">${fmtMoney(p.price)}</td>
     <td style="font-family:'Space Mono'">${marginStr}</td>
@@ -1479,11 +1481,11 @@ function populateSelects() {
   ['sale-client','pay-client','filter-client','order-client','order-filter-client','edit-order-client'].forEach(id=>{
     const el=document.getElementById(id); if(!el) return;
     const v=el.value;
-    el.innerHTML='<option value="">Selecione...</option>'+data.clients.map(c=>`<option value="${c.code}">${c.code} — ${c.name}</option>`).join('');
+    el.innerHTML='<option value="">Selecione...</option>'+data.clients.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('');
     el.value=v;
   });
   const sp=document.getElementById('sale-product');
-  if(sp){ const v=sp.value; sp.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${p.code}">${p.code} — ${p.name}</option>`).join(''); sp.value=v; }
+  if(sp){ const v=sp.value; sp.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.name)}</option>`).join(''); sp.value=v; }
   // re-renderiza linhas de itens de encomenda (caso a lista de produtos tenha mudado)
   if (document.getElementById('order-items-list')) renderNewOrderItems();
   if (document.getElementById('edit-order-items-list')) renderEditOrderItems();
@@ -1513,7 +1515,7 @@ async function addSale() {
   const cli=data.clients.find(c=>c.code===clientCode);
   const unitPrice=unitPriceRaw;
   const total=unitPrice*qty;
-  const id='M'+Date.now();
+  const id='M'+Date.now()+Math.random().toString(36).slice(2,6);
   const {error}=await db.from('movements').insert({
     id, type:'venda', client_code:clientCode, client_name:cli.name,
     product_code:productCode, product_name:prod.name,
@@ -1608,7 +1610,7 @@ async function addPayment() {
 // ===== MOVEMENTS =====
 async function deleteMovement(id) {
   if(!confirm('Excluir esta movimentação?')) return;
-  const {error}=await db.from('movements').delete().eq('id',id);
+  const {error}=await db.from('movements').delete().eq('id',id).eq('user_id',currentUser.id);
   if(error) return showToast('Erro ao remover: '+error.message,true);
   data.movements=data.movements.filter(m=>m.id!==id);
   refreshAll(); showToast('Movimentação removida.');
@@ -1627,60 +1629,38 @@ function renderMovements() {
   const loadMoreDiv = document.getElementById('movements-load-more');
   const countDiv = document.getElementById('movements-count');
   if(!mvs.length){ tb.innerHTML='<tr><td colspan="9"><div class="empty"><div class="empty-icon">📋</div><p>Nenhuma movimentação encontrada.</p></div></td></tr>'; if(loadMoreDiv) loadMoreDiv.style.display='none'; return; }
+  const totalFiltered = mvs.length;
+  const shown = Math.min(movementsDisplayLimit, totalFiltered);
+  mvs = mvs.slice(0, shown);
   if(loadMoreDiv) {
-    loadMoreDiv.style.display = movementsHasMore ? 'block' : 'none';
-    if(loadMoreDiv.querySelector('button')) loadMoreDiv.querySelector('button').textContent = '⬇ Carregar Mais';
-    if(countDiv) countDiv.textContent = movementsHasMore ? `Mostrando ${data.movements.length} movimentações. Há mais registros.` : `Total: ${mvs.length} movimentações`;
+    loadMoreDiv.style.display = totalFiltered > shown ? 'block' : 'none';
+    if(countDiv) countDiv.textContent = totalFiltered > shown ? `Mostrando ${shown} de ${totalFiltered} movimentações` : `Total: ${totalFiltered} movimentações`;
   }
   tb.innerHTML=mvs.map((m,i)=>{
     const badge=m.type==='venda'?'<span class="badge badge-pending">Venda</span>':'<span class="badge badge-paid">Pagamento</span>';
     return `<tr>
       <td style="color:var(--muted);font-size:.75rem">${i+1}</td>
       <td><code style="font-size:.8rem">${fmtDate(m.date)}</code></td>
-      <td><strong>${m.clientName}</strong><br><small style="color:var(--muted)">${m.clientCode}</small></td>
-      <td>${m.productName}<br><small style="color:var(--muted)">${m.productCode}</small></td>
+      <td><strong>${esc(m.clientName)}</strong><br><small style="color:var(--muted)">${esc(m.clientCode)}</small></td>
+      <td>${esc(m.productName)}<br><small style="color:var(--muted)">${esc(m.productCode)}</small></td>
       <td style="text-align:center">${m.type==='pagamento'?'—':m.qty}</td>
       <td style="font-family:'Space Mono';color:${m.type==='venda'?'var(--red)':'var(--green)'}">${m.type==='venda'?'-':'+'} ${fmtMoney(m.total)}</td>
       <td>${badge}</td>
-      <td style="color:var(--muted);font-size:.8rem">${m.obs||'—'}</td>
+      <td style="color:var(--muted);font-size:.8rem">${esc(m.obs)||'—'}</td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteMovement('${m.id}')">✕</button></td>
     </tr>`;
   }).join('');
 }
-async function loadMoreMovements() {
-  const btn = document.getElementById('movements-load-more');
-  if (btn) btn.querySelector('button').textContent = '⏳ Carregando...';
-  movementsPage++;
-  const from = movementsPage * MOVEMENTS_PAGE_SIZE;
-  const to = from + MOVEMENTS_PAGE_SIZE - 1;
-  const fc = document.getElementById('filter-client')?.value || '';
-  const ft = document.getElementById('filter-type')?.value || '';
-  const fd1 = document.getElementById('filter-date-from')?.value || '';
-  const fd2 = document.getElementById('filter-date-to')?.value || '';
-  let q = db.from('movements').select('*').eq('user_id', currentUser.id).order('date', { ascending: false }).range(from, to);
-  if (fc) q = q.eq('client_code', fc);
-  if (ft) q = q.eq('type', ft);
-  if (fd1) q = q.gte('date', fd1);
-  if (fd2) q = q.lte('date', fd2);
-  const { data: more, error } = await q;
-  if (error) { showToast('Erro ao carregar mais movimentações', true); return; }
-  const mapped = (more || []).map(m => ({
-    id:m.id, type:m.type, clientCode:m.client_code, clientName:m.client_name,
-    productCode:m.product_code, productName:m.product_name,
-    qty:Number(m.qty), unitPrice:Number(m.unit_price), total:Number(m.total),
-    date:m.date, obs:m.obs, createdAt:m.created_at
-  }));
-  movementsHasMore = mapped.length === MOVEMENTS_PAGE_SIZE;
-  data.movements = [...data.movements, ...mapped];
+function loadMoreMovements() {
+  movementsDisplayLimit += MOVEMENTS_PAGE_SIZE;
   renderMovements();
 }
-
 function clearFilters() {
   document.getElementById('filter-client').value='';
   document.getElementById('filter-type').value='';
   document.getElementById('filter-date-from').value='';
   document.getElementById('filter-date-to').value='';
-  movementsPage = 0;
+  movementsDisplayLimit = MOVEMENTS_PAGE_SIZE;
   renderMovements();
 }
 
@@ -1713,8 +1693,8 @@ function renderDashboard() {
   list.innerHTML=sorted.map(c=>`
     <div class="client-debt-card ${c.debt>0?'has-debt':'no-debt'}">
       <div class="cdc-info">
-        <h3>${c.name} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${c.code}</small></h3>
-        <p>${c.phone||'Sem telefone'}</p>
+        <h3>${esc(c.name)} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${esc(c.code)}</small></h3>
+        <p>${esc(c.phone)||'Sem telefone'}</p>
       </div>
       <div style="text-align:center">
         <div class="cdc-amount ${c.debt>0?'debt':'clear'}">${fmtMoney(c.debt)}</div>
@@ -1744,7 +1724,7 @@ function openExtrato(clientCode) {
     if(m.type==='venda') saldo+=m.total; else saldo-=m.total;
     return `<tr>
       <td>${fmtDate(m.date)}</td>
-      <td>${m.productName}</td>
+      <td>${esc(m.productName)}</td>
       <td>${m.type==='pagamento'?'—':m.qty}</td>
       <td style="color:${m.type==='venda'?'var(--red)':'var(--green)'};font-family:'Space Mono'">${m.type==='venda'?'- ':'+ '}${fmtMoney(m.total)}</td>
       <td style="font-family:'Space Mono'">${fmtMoney(saldo)}</td>
@@ -1813,7 +1793,7 @@ async function submitQuickPayment() {
   const cli = data.clients.find(c => c.code === clientCode);
   const debt = getClientDebt(clientCode);
   if (value > debt + 0.01) return showToast(`Valor maior que o débito (${fmtMoney(debt)})!`, true);
-  const id = 'P' + Date.now();
+  const id = 'P' + Date.now() + Math.random().toString(36).slice(2,6);
   const {error} = await db.from('movements').insert({
     id, type: 'pagamento', client_code: clientCode, client_name: cli.name,
     product_code: '—', product_name: 'Pagamento recebido',
@@ -1858,8 +1838,8 @@ function renderReport() {
       ${clientsWithDebt.length?`<div class="table-wrap"><table>
         <thead><tr><th>Cliente</th><th>Telefone</th><th>Total Comprado</th><th>Total Pago</th><th>Débito Atual</th><th>Status</th><th></th></tr></thead>
         <tbody>${clientsWithDebt.map(c=>`<tr>
-          <td><strong>${c.name}</strong><br><small style="color:var(--muted)">${c.code}</small></td>
-          <td style="color:var(--muted)">${c.phone||'—'}</td>
+          <td><strong>${esc(c.name)}</strong><br><small style="color:var(--muted)">${esc(c.code)}</small></td>
+          <td style="color:var(--muted)">${esc(c.phone)||'—'}</td>
           <td style="font-family:'Space Mono'">${fmtMoney(c.totalSales)}</td>
           <td style="font-family:'Space Mono';color:var(--green)">${fmtMoney(c.totalPay)}</td>
           <td style="font-family:'Space Mono';font-weight:700;color:${c.debt>0?'var(--red)':'var(--green)'}">${fmtMoney(c.debt)}</td>
@@ -1895,8 +1875,8 @@ function renderReport() {
       ${sales.length?`<div class="table-wrap" style="margin-bottom:1.5rem"><table>
         <thead><tr><th>Cliente</th><th>Produto</th><th>Qtd</th><th>Valor Unit.</th><th>Total</th><th>Obs</th></tr></thead>
         <tbody>${sales.map(m=>`<tr>
-          <td><strong>${m.clientName}</strong><br><small style="color:var(--muted)">${m.clientCode}</small></td>
-          <td>${m.productName}<br><small style="color:var(--muted)">${m.productCode}</small></td>
+          <td><strong>${esc(m.clientName)}</strong><br><small style="color:var(--muted)">${esc(m.clientCode)}</small></td>
+          <td>${esc(m.productName)}<br><small style="color:var(--muted)">${esc(m.productCode)}</small></td>
           <td>${m.qty}</td>
           <td style="font-family:'Space Mono'">${fmtMoney(m.unitPrice)}</td>
           <td style="font-family:'Space Mono';color:var(--red)">${fmtMoney(m.total)}</td>
@@ -1907,7 +1887,7 @@ function renderReport() {
       ${payments.length?`<div class="table-wrap"><table>
         <thead><tr><th>Cliente</th><th>Valor</th><th>Obs</th></tr></thead>
         <tbody>${payments.map(m=>`<tr>
-          <td><strong>${m.clientName}</strong><br><small style="color:var(--muted)">${m.clientCode}</small></td>
+          <td><strong>${esc(m.clientName)}</strong><br><small style="color:var(--muted)">${esc(m.clientCode)}</small></td>
           <td style="font-family:'Space Mono';color:var(--green)">${fmtMoney(m.total)}</td>
           <td style="color:var(--muted)">${m.obs||'—'}</td>
         </tr>`).join('')}</tbody>
@@ -1975,7 +1955,7 @@ function renderReport() {
           <td><code style="font-size:.8rem">${fmtDate(m.date)}</code></td>
           <td>${m.type==='venda'?'<span class="badge badge-pending">Venda</span>':'<span class="badge badge-paid">Pgto</span>'}</td>
           <td>${m.clientName}</td>
-          <td>${m.productName}</td>
+          <td>${esc(m.productName)}</td>
           <td>${m.qty}</td>
           <td style="font-family:'Space Mono';color:${m.type==='venda'?'var(--red)':'var(--green)'}">${m.type==='venda'?'- ':'+ '}${fmtMoney(m.total)}</td>
           <td style="color:var(--muted)">${m.obs||'—'}</td>
@@ -2271,7 +2251,7 @@ let editOrderRowSeq = 0;
 
 function productOptionsHtml(selectedCode) {
   return '<option value="">Selecione...</option>' + data.products.map(p =>
-    `<option value="${p.code}" ${p.code===selectedCode?'selected':''}>${p.code} — ${p.name}</option>`
+    `<option value="${esc(p.code)}" ${p.code===selectedCode?'selected':''}>${esc(p.code)} — ${esc(p.name)}</option>`
   ).join('');
 }
 
@@ -2334,7 +2314,7 @@ async function addOrder() {
   if (!validItems.length) return showToast('Adicione ao menos um item válido!', true);
   const cli = data.clients.find(c => c.code === clientCode);
   const total = validItems.reduce((s,it)=> s + parseFloat(it.unitPrice)*parseInt(it.qty), 0);
-  const id = 'O' + Date.now();
+  const id = 'O' + Date.now() + Math.random().toString(36).slice(2,6);
   const { error } = await db.from('orders').insert({
     id, client_code: clientCode, client_name: cli.name,
     total, delivery_date: deliveryDate, obs, status: 'pendente',
@@ -2502,7 +2482,7 @@ async function confirmEntrega() {
   // 2. Lançar uma venda no fiado para CADA item do pedido
   const obsMovimento = ['Encomenda entregue', o.obs, obs].filter(Boolean).join(' | ');
   const movPayload = o.items.map((it, idx) => ({
-    id: 'M' + Date.now() + idx,
+    id: 'M' + Date.now() + idx + Math.random().toString(36).slice(2,6),
     type: 'venda', client_code: o.clientCode, client_name: o.clientName,
     product_code: it.productCode, product_name: it.productName,
     qty: it.qty, unit_price: it.unitPrice, total: it.total,
@@ -2561,7 +2541,7 @@ function renderOrders() {
     const entregaStyle = isVencido ? 'color:var(--red)' : '';
     const items = o.items || [];
     const itemsSummary = items.length ? `${items.length} ${items.length>1?'itens':'item'}` : 'sem itens';
-    const itemsMini = items.map(it => `<div>• ${it.productName} — ${it.qty}x ${fmtMoney(it.unitPrice)}</div>`).join('');
+    const itemsMini = items.map(it => `<div>• ${esc(it.productName)} — ${it.qty}x ${fmtMoney(it.unitPrice)}</div>`).join('');
     let actions = '';
     if (o.status === 'pendente') {
       actions = `
@@ -2580,8 +2560,8 @@ function renderOrders() {
     }
     return `<div class="order-card status-${o.status}">
       <div class="order-info">
-        <h3>${o.clientName} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${o.clientCode}</small></h3>
-        <p><strong>${itemsSummary}</strong>${o.obs ? ' | ' + o.obs : ''}</p>
+        <h3>${esc(o.clientName)} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${esc(o.clientCode)}</small></h3>
+        <p><strong>${itemsSummary}</strong>${o.obs ? ' | ' + esc(o.obs) : ''}</p>
         <div class="order-items-mini">${itemsMini}</div>
       </div>
       <div class="order-meta">
@@ -2644,6 +2624,14 @@ function initTheme() {
   try { saved = localStorage.getItem('pendura-theme') || 'dark'; } catch(e) {}
   applyTheme(saved);
 }
+
+// ===== INDICADOR DE CONEXÃO =====
+window.addEventListener('offline', () => {
+  showToast('⚠️ Sem conexão! Não registre vendas até a internet voltar.', true);
+});
+window.addEventListener('online', () => {
+  showToast('✅ Conexão restaurada!');
+});
 
 function refreshAll() {
   populateSelects();
