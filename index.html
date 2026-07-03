@@ -147,7 +147,7 @@
   .client-debt-card {
     background:var(--card); border:1px solid var(--border); border-radius:10px;
     padding:1.25rem 1.5rem; margin-bottom:.75rem;
-    display:grid; grid-template-columns:1fr 180px 200px; align-items:center; gap:1rem;
+    display:grid; grid-template-columns:1fr 160px 260px; align-items:center; gap:1rem;
   }
   .client-debt-card.has-debt { border-left:4px solid var(--red); }
   .client-debt-card.no-debt { border-left:4px solid var(--green); opacity:.7; }
@@ -157,7 +157,7 @@
   .cdc-amount { font-family:'Space Mono'; font-size:1.4rem; font-weight:700; }
   .cdc-amount.debt { color:var(--red); }
   .cdc-amount.clear { color:var(--green); }
-  .cdc-actions { display:flex; gap:.5rem; align-items:center; justify-content:flex-end; flex-wrap:wrap; }
+  .cdc-actions { display:flex; gap:.5rem; align-items:center; justify-content:flex-end; flex-wrap:nowrap; }
   .row-actions-grid {
     display:grid; grid-template-columns:90px 108px 90px 36px; gap:.4rem; align-items:center;
   }
@@ -281,7 +281,7 @@
     .cdc-info h3 { font-size:.95rem; }
     .cdc-amount-col { width:100%; text-align:left; }
     .cdc-amount { font-size:1.2rem; }
-    .cdc-actions { width:100%; justify-content:flex-start; }
+    .cdc-actions { width:100%; justify-content:flex-start; flex-wrap:wrap; }
     .cdc-actions .btn { flex:1; text-align:center; font-size:.7rem; }
 
     /* FILTROS */
