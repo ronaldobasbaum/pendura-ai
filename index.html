@@ -1200,11 +1200,11 @@ async function signOut() {
   showAuthScreen('login');
 }
 
-function fmtMoney(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}
+function fmtMoney(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function esc(s) {
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}); }
+}
 function fmtDate(d) { if(!d) return '-'; let p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
 function today() { return new Date().toISOString().split('T')[0]; }
 function thisMonth() { return new Date().toISOString().slice(0,7); }
