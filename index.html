@@ -147,16 +147,26 @@
   .client-debt-card {
     background:var(--card); border:1px solid var(--border); border-radius:10px;
     padding:1.25rem 1.5rem; margin-bottom:.75rem;
-    display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+    display:grid; grid-template-columns:1fr 180px 200px; align-items:center; gap:1rem;
   }
   .client-debt-card.has-debt { border-left:4px solid var(--red); }
   .client-debt-card.no-debt { border-left:4px solid var(--green); opacity:.7; }
   .cdc-info h3 { font-size:1rem; font-weight:700; margin-bottom:.2rem; }
   .cdc-info p { font-size:.78rem; color:var(--muted); }
+  .cdc-amount-col { text-align:center; }
   .cdc-amount { font-family:'Space Mono'; font-size:1.4rem; font-weight:700; }
   .cdc-amount.debt { color:var(--red); }
   .cdc-amount.clear { color:var(--green); }
-  .cdc-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+  .cdc-actions { display:flex; gap:.5rem; align-items:center; justify-content:flex-end; flex-wrap:wrap; }
+  .row-actions-grid {
+    display:grid; grid-template-columns:90px 108px 90px 36px; gap:.4rem; align-items:center;
+  }
+  .row-actions-grid .btn { width:100%; padding-left:.4rem; padding-right:.4rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  @media(max-width:900px) {
+    .row-actions-grid { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:auto; }
+    .row-actions-grid .btn { width:auto; }
+    .row-actions-grid span:empty { display:none; }
+  }
 
   /* FILTER ROW */
   .filter-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:.75rem; margin-bottom:1.25rem; align-items:end; }
@@ -266,11 +276,12 @@
     td { padding:.55rem .6rem; font-size:.78rem; }
 
     /* CLIENT DEBT CARDS */
-    .client-debt-card { flex-direction:column; align-items:flex-start; padding:1rem; gap:.6rem; }
+    .client-debt-card { display:flex; flex-direction:column; align-items:flex-start; padding:1rem; gap:.6rem; }
     .cdc-info { width:100%; }
     .cdc-info h3 { font-size:.95rem; }
+    .cdc-amount-col { width:100%; text-align:left; }
     .cdc-amount { font-size:1.2rem; }
-    .cdc-actions { width:100%; }
+    .cdc-actions { width:100%; justify-content:flex-start; }
     .cdc-actions .btn { flex:1; text-align:center; font-size:.7rem; }
 
     /* FILTROS */
@@ -1371,10 +1382,12 @@ function renderClients() {
       <td style="font-family:'Space Mono';color:${debt>0?'var(--red)':'var(--green)'}">${fmtMoney(debt)}</td>
       <td>${badge}</td>
       <td>
-        <button class="btn btn-secondary btn-sm" onclick="openExtrato('${c.code}')">Extrato</button>
-        ${debt>0?`<button class="btn btn-success btn-sm" onclick="openPayModal('${c.code}')">💰 Pagar</button>`:''}
-        <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.code}')">✏️ Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.code}')">✕</button>
+        <div class="row-actions-grid">
+          <button class="btn btn-secondary btn-sm" onclick="openExtrato('${c.code}')">Extrato</button>
+          ${debt>0?`<button class="btn btn-success btn-sm" onclick="openPayModal('${c.code}')">💰 Pagar</button>`:'<span></span>'}
+          <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.code}')">✏️ Editar</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteClient('${c.code}')">✕</button>
+        </div>
       </td>
     </tr>`;
   }).join('');
@@ -1696,7 +1709,7 @@ function renderDashboard() {
         <h3>${esc(c.name)} <small style="color:var(--muted);font-weight:400;font-size:.8rem">#${esc(c.code)}</small></h3>
         <p>${esc(c.phone)||'Sem telefone'}</p>
       </div>
-      <div style="text-align:center">
+      <div class="cdc-amount-col">
         <div class="cdc-amount ${c.debt>0?'debt':'clear'}">${fmtMoney(c.debt)}</div>
         <div style="font-size:.7rem;color:var(--muted)">${c.debt>0?'em aberto':'sem débito'}</div>
       </div>
