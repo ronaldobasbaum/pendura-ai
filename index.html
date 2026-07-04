@@ -491,31 +491,23 @@
       </select>
     </div>
     <div class="form-group">
-      <label>Código do Produto</label>
-      <select id="sale-product" onchange="onSaleProductChange()">
-        <option value="">Selecione o produto...</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label>Preço Unitário (R$)</label>
-      <input type="number" id="sale-unit-price" placeholder="0,00" step="0.01" min="0">
-    </div>
-    <div class="form-group">
-      <label>Quantidade</label>
-      <input type="number" id="sale-qty" value="1" min="1">
-    </div>
-    <div class="form-group">
       <label>Data da Movimentação</label>
       <input type="date" id="sale-date">
     </div>
-    <div class="form-group">
-      <label>Observação</label>
-      <input type="text" id="sale-obs" placeholder="Opcional..." autocomplete="off">
-    </div>
-    <div class="form-group" style="justify-content:flex-end;">
-      <label>&nbsp;</label>
-      <button class="btn btn-primary" onclick="addSale()">📌 Pendurar Venda</button>
-    </div>
+  </div>
+
+  <div class="section-title" style="font-size:1.1rem;margin-top:1rem">Itens da Venda</div>
+  <div id="sale-items-list"></div>
+  <button class="btn btn-secondary" style="margin-top:.5rem" onclick="addSaleItemRow()">➕ Adicionar Item</button>
+
+  <div class="form-group" style="margin-top:1rem">
+    <label>Observação</label>
+    <input type="text" id="sale-obs" placeholder="Opcional..." autocomplete="off">
+  </div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+    <div style="font-family:'Space Mono';font-size:1.2rem;font-weight:700">Total: <span id="sale-total-display" style="color:var(--accent2)">R$ 0,00</span></div>
+    <button class="btn btn-primary" onclick="addSale()">📌 Pendurar Venda</button>
   </div>
 
   <hr>
@@ -1498,60 +1490,107 @@ function populateSelects() {
     el.innerHTML='<option value="">Selecione...</option>'+data.clients.map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('');
     el.value=v;
   });
-  const sp=document.getElementById('sale-product');
-  if(sp){ const v=sp.value; sp.innerHTML='<option value="">Selecione o produto...</option>'+data.products.map(p=>`<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.name)}</option>`).join(''); sp.value=v; }
-  // re-renderiza linhas de itens de encomenda (caso a lista de produtos tenha mudado)
+  // re-renderiza linhas de itens (caso a lista de produtos tenha mudado)
+  if (document.getElementById('sale-items-list')) renderSaleItems();
   if (document.getElementById('order-items-list')) renderNewOrderItems();
   if (document.getElementById('edit-order-items-list')) renderEditOrderItems();
 }
 
-// ===== SALES =====
-function onSaleProductChange() {
-  const productCode=document.getElementById('sale-product').value;
-  const prod=data.products.find(p=>p.code===productCode);
-  const priceInput=document.getElementById('sale-unit-price');
-  priceInput.value = prod ? prod.price : '';
+// ===== SALES (multi-item) =====
+let newSaleItems = [];
+let newSaleRowSeq = 0;
+
+function addSaleItemRow(productCode, qty, unitPrice) {
+  const rowId = 'si' + (newSaleRowSeq++);
+  newSaleItems.push({ rowId, productCode: productCode||'', qty: qty||1, unitPrice: unitPrice!=null?unitPrice:'' });
+  renderSaleItems();
+}
+function removeSaleItemRow(rowId) {
+  newSaleItems = newSaleItems.filter(it => it.rowId !== rowId);
+  renderSaleItems();
+}
+function onSaleItemProductChange(rowId, productCode) {
+  const it = newSaleItems.find(i => i.rowId === rowId);
+  if (!it) return;
+  it.productCode = productCode;
+  const prod = data.products.find(p => p.code === productCode);
+  it.unitPrice = prod ? prod.price : '';
+  renderSaleItems();
+}
+function onSaleItemQtyChange(rowId, val) {
+  const it = newSaleItems.find(i => i.rowId === rowId);
+  if (it) it.qty = parseInt(val) || 1;
+  updateSaleTotalDisplay();
+}
+function onSaleItemPriceChange(rowId, val) {
+  const it = newSaleItems.find(i => i.rowId === rowId);
+  if (it) it.unitPrice = parseFloat(val);
+  updateSaleTotalDisplay();
+}
+function renderSaleItems() {
+  const list = document.getElementById('sale-items-list');
+  if (!list) return;
+  if (!newSaleItems.length) {
+    list.innerHTML = '<p style="font-size:.82rem;color:var(--muted);padding:.5rem 0">Nenhum item adicionado. Clique em "Adicionar Item".</p>';
+  } else {
+    list.innerHTML = newSaleItems.map(it => `
+      <div class="order-item-row">
+        <select onchange="onSaleItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
+        <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onSaleItemQtyChange('${it.rowId}', this.value)">
+        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onSaleItemPriceChange('${it.rowId}', this.value)">
+        <button class="order-item-remove" onclick="removeSaleItemRow('${it.rowId}')">✕</button>
+      </div>`).join('');
+  }
+  updateSaleTotalDisplay();
+}
+function updateSaleTotalDisplay() {
+  const total = newSaleItems.reduce((s,it)=> s + (parseFloat(it.unitPrice)||0)*(parseInt(it.qty)||0), 0);
+  const el = document.getElementById('sale-total-display');
+  if (el) el.textContent = fmtMoney(total);
 }
 
 async function addSale() {
   const saleBtn = document.querySelector('#page-nova-venda .btn-primary');
   if (saleBtn) { saleBtn.disabled = true; saleBtn.textContent = '⏳ Salvando...'; }
   const clientCode=document.getElementById('sale-client').value;
-  const productCode=document.getElementById('sale-product').value;
-  const qty=parseInt(document.getElementById('sale-qty').value)||1;
-  const unitPriceRaw=parseFloat(document.getElementById('sale-unit-price').value);
   const date=document.getElementById('sale-date').value||today();
   const obs=document.getElementById('sale-obs').value.trim();
-  if(!clientCode) return showToast('Selecione um cliente!',true);
-  if(!productCode) return showToast('Selecione um produto!',true);
-  if(isNaN(unitPriceRaw)||unitPriceRaw<0) return showToast('Informe um preço válido!',true);
-  const prod=data.products.find(p=>p.code===productCode);
+  if(!clientCode) { if(saleBtn){saleBtn.disabled=false;saleBtn.textContent='📌 Pendurar Venda';} return showToast('Selecione um cliente!',true); }
+  const validItems = newSaleItems.filter(it => it.productCode && !isNaN(parseFloat(it.unitPrice)) && parseFloat(it.unitPrice)>=0 && (parseInt(it.qty)||0)>0);
+  if (!validItems.length) { if(saleBtn){saleBtn.disabled=false;saleBtn.textContent='📌 Pendurar Venda';} return showToast('Adicione ao menos um item válido!',true); }
   const cli=data.clients.find(c=>c.code===clientCode);
-  const unitPrice=unitPriceRaw;
-  const total=unitPrice*qty;
-  const id='M'+Date.now()+Math.random().toString(36).slice(2,6);
-  const {error}=await db.from('movements').insert({
-    id, type:'venda', client_code:clientCode, client_name:cli.name,
-    product_code:productCode, product_name:prod.name,
-    qty, unit_price:unitPrice, total, date, obs, user_id:currentUser.id
+  const movPayload = validItems.map((it, idx) => {
+    const prod = data.products.find(p=>p.code===it.productCode);
+    const qty = parseInt(it.qty);
+    const unitPrice = parseFloat(it.unitPrice);
+    return {
+      id: 'M'+Date.now()+idx+Math.random().toString(36).slice(2,6),
+      type:'venda', client_code:clientCode, client_name:cli.name,
+      product_code:it.productCode, product_name:prod?prod.name:it.productCode,
+      qty, unit_price:unitPrice, total:unitPrice*qty, date, obs, user_id:currentUser.id
+    };
   });
+  const {error}=await db.from('movements').insert(movPayload);
   if(error) {
     if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
     return showToast('Erro ao salvar: '+error.message,true);
   }
-  data.movements.unshift({
-    id, type:'venda', clientCode, clientName:cli.name,
-    productCode, productName:prod.name, qty, unitPrice, total, date, obs,
-    createdAt:new Date().toISOString()
+  movPayload.forEach(m => {
+    data.movements.unshift({
+      id:m.id, type:'venda', clientCode:m.client_code, clientName:m.client_name,
+      productCode:m.product_code, productName:m.product_name,
+      qty:m.qty, unitPrice:m.unit_price, total:m.total, date:m.date, obs:m.obs,
+      createdAt:new Date().toISOString()
+    });
   });
+  const totalGeral = movPayload.reduce((s,m)=>s+m.total,0);
   refreshAll();
   document.getElementById('sale-client').value='';
-  document.getElementById('sale-product').value='';
-  document.getElementById('sale-unit-price').value='';
-  document.getElementById('sale-qty').value=1;
   document.getElementById('sale-obs').value='';
+  newSaleItems = [];
+  renderSaleItems();
   if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
-  showToast(`Venda de ${fmtMoney(total)} registrada para ${cli.name}!`);
+  showToast(`Venda de ${fmtMoney(totalGeral)} registrada para ${cli.name} (${movPayload.length} item(ns))!`);
 }
 
 // ===== PAYMENT =====
