@@ -710,15 +710,16 @@
       <label>Data de Entrega Prevista</label>
       <input type="date" id="order-delivery-date">
     </div>
-    <div class="form-group" style="grid-column:1/-1">
-      <label>Observação Geral</label>
-      <input type="text" id="order-obs" placeholder="Opcional..." autocomplete="off">
-    </div>
   </div>
 
   <div class="section-title" style="font-size:1.1rem;margin-top:1rem">Itens do Pedido</div>
   <div id="order-items-list"></div>
   <button class="btn btn-secondary" style="margin-top:.5rem" onclick="addOrderItemRow()">➕ Adicionar Item</button>
+
+  <div class="form-group" style="margin-top:1rem">
+    <label>Observação Geral</label>
+    <input type="text" id="order-obs" placeholder="Opcional..." autocomplete="off">
+  </div>
 
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
     <div style="font-family:'Space Mono';font-size:1.2rem;font-weight:700">Total: <span id="order-total-display" style="color:var(--accent2)">R$ 0,00</span></div>
@@ -926,14 +927,14 @@
         <label>Data de Entrega Prevista</label>
         <input type="date" id="edit-order-delivery-date">
       </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label>Observação Geral</label>
-        <input type="text" id="edit-order-obs" placeholder="Opcional..." autocomplete="off">
-      </div>
     </div>
     <div class="section-title" style="font-size:1rem;margin-top:.5rem">Itens do Pedido</div>
     <div id="edit-order-items-list"></div>
     <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="addEditOrderItemRow()">➕ Adicionar Item</button>
+    <div class="form-group" style="margin-top:1rem">
+      <label>Observação Geral</label>
+      <input type="text" id="edit-order-obs" placeholder="Opcional..." autocomplete="off">
+    </div>
     <div style="text-align:right;margin-top:1rem;font-family:'Space Mono';font-weight:700">Total: <span id="edit-order-total-display" style="color:var(--accent2)">R$ 0,00</span></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-edit-order')">Cancelar</button>
