@@ -384,6 +384,9 @@
   .order-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
   .order-item-row { display:grid; grid-template-columns:2fr 80px 110px 32px; gap:.5rem; align-items:center; margin-bottom:.5rem; }
   .order-item-row select, .order-item-row input { padding:.5rem .7rem; font-size:.85rem; }
+  .price-input-wrap { display:flex; align-items:center; gap:.3rem; background:var(--card); border:1px solid var(--border); border-radius:6px; padding:0 .5rem; }
+  .price-input-wrap span { font-size:.78rem; color:var(--muted); flex-shrink:0; }
+  .price-input-wrap input { border:none !important; background:transparent !important; padding:.5rem 0 !important; width:100%; }
   .order-item-remove { background:var(--red); color:#fff; border:none; border-radius:6px; width:32px; height:32px; cursor:pointer; font-size:.9rem; line-height:1; }
   .order-item-remove:hover { background:#e0334d; }
   .order-items-mini { font-size:.78rem; color:var(--muted); margin-top:.3rem; }
@@ -392,7 +395,7 @@
     .order-item-row { grid-template-columns:1fr 1fr; grid-template-areas:"prod prod" "qty price" "remove remove"; }
     .order-item-row select { grid-area:prod; }
     .order-item-row input:nth-of-type(1) { grid-area:qty; }
-    .order-item-row input:nth-of-type(2) { grid-area:price; }
+    .order-item-row .price-input-wrap { grid-area:price; }
     .order-item-remove { grid-area:remove; width:100%; }
   }
   @media(max-width:640px) {
@@ -1910,7 +1913,7 @@ function renderSaleItems() {
       <div class="order-item-row">
         <select onchange="onSaleItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
         <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onSaleItemQtyChange('${it.rowId}', this.value)">
-        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onSaleItemPriceChange('${it.rowId}', this.value)">
+        <div class="price-input-wrap"><span>R$</span><input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="0,00" onchange="onSaleItemPriceChange('${it.rowId}', this.value)"></div>
         <button class="order-item-remove" onclick="removeSaleItemRow('${it.rowId}')">✕</button>
       </div>`).join('');
   }
@@ -2726,7 +2729,7 @@ function renderNewOrderItems() {
       <div class="order-item-row">
         <select onchange="onOrderItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
         <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onOrderItemQtyChange('${it.rowId}', this.value)">
-        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onOrderItemPriceChange('${it.rowId}', this.value)">
+        <div class="price-input-wrap"><span>R$</span><input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="0,00" onchange="onOrderItemPriceChange('${it.rowId}', this.value)"></div>
         <button class="order-item-remove" onclick="removeOrderItemRow('${it.rowId}')">✕</button>
       </div>`).join('');
   }
@@ -2816,7 +2819,7 @@ function renderEditOrderItems() {
       <div class="order-item-row">
         <select onchange="onEditOrderItemProductChange('${it.rowId}', this.value)">${productOptionsHtml(it.productCode)}</select>
         <input type="number" min="1" value="${it.qty}" placeholder="Qtd" onchange="onEditOrderItemQtyChange('${it.rowId}', this.value)">
-        <input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="Preço" onchange="onEditOrderItemPriceChange('${it.rowId}', this.value)">
+        <div class="price-input-wrap"><span>R$</span><input type="number" step="0.01" min="0" value="${it.unitPrice}" placeholder="0,00" onchange="onEditOrderItemPriceChange('${it.rowId}', this.value)"></div>
         <button class="order-item-remove" onclick="removeEditOrderItemRow('${it.rowId}')">✕</button>
       </div>`).join('');
   }
