@@ -1590,6 +1590,23 @@ function blankRange(text, start, len) {
   return text.slice(0, start) + ' '.repeat(len) + text.slice(start + len);
 }
 
+// Distância de edição entre duas strings — usada para tolerar pequenos erros do reconhecedor de voz
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
 // Procura um número (quantidade) nas ~4 palavras imediatamente antes de um índice do texto.
 // Retorna {qty, start, end} — start/end é a posição exata da palavra de quantidade (ou null se não achou, assume 1).
 function extractQtyBefore(text, matchIndex) {
@@ -1686,6 +1703,47 @@ function findProductsInVoice(rawText, excludeRanges) {
     const eraseStart = qtyInfo.start !== null ? qtyInfo.start : idx;
     text = blankRange(text, eraseStart, (idx - eraseStart) + word.length);
   });
+
+  // TIER 3: correspondência aproximada — tolera pequenos erros do reconhecedor de voz
+  // (ex: "pãozinho" transcrito quebrado como "pães, Zinho"). Só para produtos de nome de UMA palavra
+  // e só aceita o melhor casamento entre produto e trecho de texto, sem repetir nem ambiguidade.
+  remaining = candidates.filter(({ p, norm }) => !matchedCodes.has(p.code) && !norm.includes(' '));
+  if (remaining.length) {
+    const letterTokens = [...text.matchAll(/[a-z]+/g)].filter(t => t[0].length >= 3);
+    const spans = [];
+    letterTokens.forEach(t => spans.push({ text: t[0], start: t.index, end: t.index + t[0].length }));
+    letterTokens.forEach((t, i) => {
+      if (i >= letterTokens.length - 1) return;
+      const t2 = letterTokens[i + 1];
+      if (t2.index - (t.index + t[0].length) <= 3) { // tokens próximos (só vírgula/espaço entre eles)
+        const combined = t[0] + t2[0];
+        if (combined.length >= 5) spans.push({ text: combined, start: t.index, end: t2.index + t2[0].length });
+      }
+    });
+    const triples = [];
+    remaining.forEach(cand => {
+      let best = null;
+      spans.forEach(span => {
+        const dist = levenshtein(span.text, cand.norm);
+        const threshold = Math.max(1, Math.floor(cand.norm.length * 0.3));
+        if (dist <= threshold && (!best || dist < best.dist)) best = { span, dist };
+      });
+      if (best) triples.push({ cand, span: best.span, dist: best.dist });
+    });
+    triples.sort((a, b) => a.dist - b.dist);
+    const usedSpans = new Set();
+    triples.forEach(({ cand, span }) => {
+      if (matchedCodes.has(cand.p.code)) return;
+      const key = span.start + '-' + span.end;
+      if (usedSpans.has(key)) return;
+      usedSpans.add(key);
+      matchedCodes.add(cand.p.code);
+      const qtyInfo = extractQtyBefore(text, span.start);
+      found.push({ productCode: cand.p.code, productName: cand.p.name, qty: qtyInfo.qty, unitPrice: cand.p.price });
+      const eraseStart = qtyInfo.start !== null ? qtyInfo.start : span.start;
+      text = blankRange(text, eraseStart, (span.start - eraseStart) + (span.end - span.start));
+    });
+  }
 
   return found;
 }
