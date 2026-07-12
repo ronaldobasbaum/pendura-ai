@@ -489,6 +489,7 @@
     <div style="flex:1;min-width:200px">
       <div id="voice-sale-status" style="font-size:.8rem;color:var(--muted)">Diga o cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"</div>
       <div id="voice-sale-transcript" style="font-size:.85rem;color:var(--accent2);margin-top:.2rem;font-style:italic"></div>
+      <div id="voice-client-picker" style="display:none;margin-top:.6rem;gap:.4rem;flex-wrap:wrap;align-items:center"></div>
     </div>
   </div>
 
@@ -1553,16 +1554,27 @@ function parseMoneyFromVoice(rawText) {
   return null;
 }
 
-function findClientInVoice(rawText) {
+// Retorna todos os clientes cujo nome (completo ou primeiro nome) aparece no texto falado,
+// junto com o tamanho do trecho casado — usado para detectar ambiguidade (nomes duplicados/parecidos).
+function findClientCandidatesInVoice(rawText) {
   const text = normalizeVoiceText(rawText);
-  let best = null, bestLen = 0;
+  const matches = [];
   data.clients.forEach(c => {
     const name = normalizeVoiceText(c.name);
     const firstName = name.split(' ')[0];
-    if (name && text.includes(name) && name.length > bestLen) { best = c; bestLen = name.length; }
-    else if (firstName && firstName.length > 2 && text.includes(firstName) && firstName.length > bestLen) { best = c; bestLen = firstName.length; }
+    if (name && text.includes(name)) matches.push({ client: c, matchLen: name.length });
+    else if (firstName && firstName.length > 2 && text.includes(firstName)) matches.push({ client: c, matchLen: firstName.length });
   });
-  return best;
+  if (!matches.length) return { best: null, candidates: [], ambiguous: false };
+  const maxLen = Math.max(...matches.map(m => m.matchLen));
+  const top = matches.filter(m => m.matchLen === maxLen);
+  if (top.length === 1) return { best: top[0].client, candidates: [], ambiguous: false };
+  return { best: null, candidates: top.map(m => m.client), ambiguous: true };
+}
+
+// Mantido por compatibilidade — retorna só o melhor cliente (uso simples)
+function findClientInVoice(rawText) {
+  return findClientCandidatesInVoice(rawText).best;
 }
 
 // Blanca (apaga) um trecho do texto mantendo o mesmo tamanho, para não interferir em buscas seguintes
@@ -1639,6 +1651,19 @@ function findProductsInVoice(rawText, excludeRanges) {
   return found;
 }
 
+function selectVoiceClient(code) {
+  document.getElementById('sale-client').value = code;
+  const pickerEl = document.getElementById('voice-client-picker');
+  pickerEl.style.display = 'none';
+  pickerEl.innerHTML = '';
+  const cli = data.clients.find(c => c.code === code);
+  const statusEl = document.getElementById('voice-sale-status');
+  if (cli && statusEl) {
+    statusEl.textContent = `Cliente: ${cli.name} ✓ — confira os itens e confirme a venda.`;
+    statusEl.style.color = 'var(--green)';
+  }
+}
+
 function startVoiceSale() {
   const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
   const btn = document.getElementById('voice-sale-btn');
@@ -1666,16 +1691,19 @@ function startVoiceSale() {
     const transcript = event.results[0][0].transcript;
     transcriptEl.textContent = `"${transcript}"`;
     const normalized = normalizeVoiceText(transcript);
-    const client = findClientInVoice(transcript);
+    const clientResult = findClientCandidatesInVoice(transcript);
+    const client = clientResult.best;
 
-    // marca o trecho do nome do cliente para excluir da busca de produtos
+    // marca o trecho do nome do cliente (ou do primeiro candidato ambíguo) para excluir da busca de produtos
     let excludeRanges = [];
-    if (client) {
-      const cName = normalizeVoiceText(client.name);
+    const clientForExclusion = client || (clientResult.candidates[0] || null);
+    if (clientForExclusion) {
+      const cName = normalizeVoiceText(clientForExclusion.name);
       const cFirst = cName.split(' ')[0];
       let idx = normalized.indexOf(cName);
-      if (idx === -1) idx = normalized.indexOf(cFirst);
-      if (idx > -1) excludeRanges.push([idx, (idx===normalized.indexOf(cName)?cName.length:cFirst.length)]);
+      let len = cName.length;
+      if (idx === -1) { idx = normalized.indexOf(cFirst); len = cFirst.length; }
+      if (idx > -1) excludeRanges.push([idx, len]);
     }
 
     const items = findProductsInVoice(transcript, excludeRanges);
@@ -1689,11 +1717,22 @@ function startVoiceSale() {
       if (value) addSaleItemRow('', 1, value);
     }
 
+    const pickerEl = document.getElementById('voice-client-picker');
+    if (clientResult.ambiguous) {
+      pickerEl.style.display = 'flex';
+      pickerEl.innerHTML = '<span style="font-size:.78rem;color:var(--accent2);width:100%">Mais de um cliente com esse nome — qual é?</span>' +
+        clientResult.candidates.map(c => `<button class="btn btn-secondary btn-sm" onclick="selectVoiceClient('${c.code}')">${esc(c.name)} ${c.phone?'('+esc(c.phone)+')':''}</button>`).join('');
+    } else {
+      pickerEl.style.display = 'none';
+      pickerEl.innerHTML = '';
+    }
+
     let parts = [];
-    parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
+    if (clientResult.ambiguous) parts.push('⚠️ Nome de cliente ambíguo — escolha abaixo');
+    else parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
     parts.push(items.length ? `${items.length} produto(s) identificado(s) ✓` : 'Nenhum produto do catálogo reconhecido — confira os itens');
     statusEl.textContent = parts.join(' | ');
-    statusEl.style.color = client && items.length ? 'var(--green)' : 'var(--accent2)';
+    statusEl.style.color = clientResult.ambiguous ? 'var(--accent2)' : (client && items.length ? 'var(--green)' : 'var(--accent2)');
   };
   recognition.onerror = (event) => {
     statusEl.textContent = event.error === 'not-allowed'
