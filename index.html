@@ -483,6 +483,15 @@
 <!-- NOVA VENDA -->
 <div id="page-nova-venda" class="page">
   <div class="section-title">Registrar Venda</div>
+
+  <div id="voice-sale-box" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <button class="btn btn-secondary" id="voice-sale-btn" onclick="startVoiceSale()" style="flex-shrink:0">🎤 Ditar Venda</button>
+    <div style="flex:1;min-width:200px">
+      <div id="voice-sale-status" style="font-size:.8rem;color:var(--muted)">Diga o nome do cliente e o valor. Ex: "Maria, 50 reais"</div>
+      <div id="voice-sale-transcript" style="font-size:.85rem;color:var(--accent2);margin-top:.2rem;font-style:italic"></div>
+    </div>
+  </div>
+
   <div class="form-grid">
     <div class="form-group">
       <label>Código do Cliente</label>
@@ -1494,6 +1503,126 @@ function populateSelects() {
   if (document.getElementById('sale-items-list')) renderSaleItems();
   if (document.getElementById('order-items-list')) renderNewOrderItems();
   if (document.getElementById('edit-order-items-list')) renderEditOrderItems();
+}
+
+// ===== VENDA POR VOZ =====
+let voiceSaleRecognition = null;
+
+function normalizeVoiceText(s) {
+  return (s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .replace(/[^\w\s,.]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const NUM_WORDS = {
+  'zero':0,'um':1,'uma':1,'dois':2,'duas':2,'tres':3,'quatro':4,'cinco':5,'seis':6,'sete':7,'oito':8,'nove':9,
+  'dez':10,'onze':11,'doze':12,'treze':13,'quatorze':14,'catorze':14,'quinze':15,'dezesseis':16,'dezessete':17,'dezoito':18,'dezenove':19,
+  'vinte':20,'trinta':30,'quarenta':40,'cinquenta':50,'sessenta':60,'setenta':70,'oitenta':80,'noventa':90,
+  'cem':100,'cento':100,'duzentos':200,'trezentos':300,'quatrocentos':400,'quinhentos':500,'seiscentos':600,'setecentos':700,'oitocentos':800,'novecentos':900,
+  'mil':1000
+};
+function wordsToNumber(text) {
+  const words = text.split(' ').filter(w => w in NUM_WORDS || w === 'e');
+  if (!words.length) return null;
+  let total = 0, current = 0;
+  words.forEach(w => {
+    if (w === 'e') return;
+    const val = NUM_WORDS[w];
+    if (val === 1000) { total += (current || 1) * 1000; current = 0; }
+    else if (val >= 100) { current += val; }
+    else { current += val; }
+  });
+  return total + current;
+}
+
+function parseMoneyFromVoice(rawText) {
+  const text = normalizeVoiceText(rawText);
+  // Padrão numérico: "50 reais", "r$ 50", "50,00", "50 reais e 50 centavos"
+  let m = text.match(/(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)\s*(?:reais?|conto|contos)?/);
+  if (m) {
+    const val = parseFloat(m[1].replace(',', '.'));
+    if (!isNaN(val) && val > 0) return val;
+  }
+  // Padrão por extenso: "cinquenta reais", "trinta e cinco reais"
+  const idx = text.indexOf('real');
+  if (idx > -1) {
+    const before = text.slice(0, idx).trim();
+    const val = wordsToNumber(before);
+    if (val) return val;
+  }
+  return null;
+}
+
+function findClientInVoice(rawText) {
+  const text = normalizeVoiceText(rawText);
+  let best = null, bestLen = 0;
+  data.clients.forEach(c => {
+    const name = normalizeVoiceText(c.name);
+    const firstName = name.split(' ')[0];
+    if (name && text.includes(name) && name.length > bestLen) { best = c; bestLen = name.length; }
+    else if (firstName && firstName.length > 2 && text.includes(firstName) && firstName.length > bestLen) { best = c; bestLen = firstName.length; }
+  });
+  return best;
+}
+
+function startVoiceSale() {
+  const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = document.getElementById('voice-sale-btn');
+  const statusEl = document.getElementById('voice-sale-status');
+  const transcriptEl = document.getElementById('voice-sale-transcript');
+  if (!SpeechRecognitionAPI) {
+    statusEl.textContent = '⚠️ Este navegador não suporta ditado por voz. Use o Chrome no Android ou digite manualmente.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+  if (voiceSaleRecognition) { try { voiceSaleRecognition.stop(); } catch(e) {} }
+  const recognition = new SpeechRecognitionAPI();
+  voiceSaleRecognition = recognition;
+  recognition.lang = 'pt-BR';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  btn.textContent = '🔴 Ouvindo...';
+  btn.disabled = true;
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Fale agora: nome do cliente e o valor...';
+  transcriptEl.textContent = '';
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    transcriptEl.textContent = `"${transcript}"`;
+    const client = findClientInVoice(transcript);
+    const value = parseMoneyFromVoice(transcript);
+
+    if (client) {
+      document.getElementById('sale-client').value = client.code;
+    }
+    if (value) {
+      addSaleItemRow('', 1, value);
+    }
+
+    let parts = [];
+    parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
+    parts.push(value ? `Valor: ${fmtMoney(value)} ✓` : 'Valor não identificado');
+    statusEl.textContent = parts.join(' | ') + (value ? ' — escolha o produto e confirme.' : '');
+    statusEl.style.color = client && value ? 'var(--green)' : 'var(--accent2)';
+  };
+  recognition.onerror = (event) => {
+    statusEl.textContent = event.error === 'not-allowed'
+      ? '⚠️ Permissão de microfone negada. Habilite o microfone para este site.'
+      : '⚠️ Não entendi, tente novamente.';
+    statusEl.style.color = 'var(--red)';
+  };
+  recognition.onend = () => {
+    btn.textContent = '🎤 Ditar Venda';
+    btn.disabled = false;
+  };
+  try { recognition.start(); } catch(e) {
+    btn.textContent = '🎤 Ditar Venda';
+    btn.disabled = false;
+  }
 }
 
 // ===== SALES (multi-item) =====
