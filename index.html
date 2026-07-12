@@ -1899,6 +1899,13 @@ async function addSale() {
   document.getElementById('sale-obs').value='';
   newSaleItems = [];
   renderSaleItems();
+  // limpa o feedback do ditado por voz, preparando a tela para a próxima venda
+  const voiceStatusEl = document.getElementById('voice-sale-status');
+  const voiceTranscriptEl = document.getElementById('voice-sale-transcript');
+  const voicePickerEl = document.getElementById('voice-client-picker');
+  if (voiceStatusEl) { voiceStatusEl.textContent = 'Diga o cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"'; voiceStatusEl.style.color = 'var(--muted)'; }
+  if (voiceTranscriptEl) voiceTranscriptEl.textContent = '';
+  if (voicePickerEl) { voicePickerEl.style.display = 'none'; voicePickerEl.innerHTML = ''; }
   if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
   showToast(`Venda de ${fmtMoney(totalGeral)} registrada para ${cli.name} (${movPayload.length} item(ns))!`);
 }
