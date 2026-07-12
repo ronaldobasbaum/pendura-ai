@@ -1554,16 +1554,23 @@ function parseMoneyFromVoice(rawText) {
   return null;
 }
 
+// Trata letras foneticamente parecidas em português como equivalentes na hora de comparar nomes
+// (ex: "Luis"/"Luiz" soam quase iguais e o reconhecedor de voz costuma confundir)
+function phoneticKey(s) { return s.replace(/z/g, 's'); }
+
 // Retorna todos os clientes cujo nome (completo ou primeiro nome) aparece no texto falado,
 // junto com o tamanho do trecho casado — usado para detectar ambiguidade (nomes duplicados/parecidos).
 function findClientCandidatesInVoice(rawText) {
   const text = normalizeVoiceText(rawText);
+  const phoneticText = phoneticKey(text);
   const matches = [];
   data.clients.forEach(c => {
     const name = normalizeVoiceText(c.name);
+    const phoneticName = phoneticKey(name);
     const firstName = name.split(' ')[0];
-    if (name && text.includes(name)) matches.push({ client: c, matchLen: name.length });
-    else if (firstName && firstName.length > 2 && text.includes(firstName)) matches.push({ client: c, matchLen: firstName.length });
+    const phoneticFirst = phoneticKey(firstName);
+    if (name && phoneticText.includes(phoneticName)) matches.push({ client: c, matchLen: name.length });
+    else if (firstName && firstName.length > 2 && phoneticText.includes(phoneticFirst)) matches.push({ client: c, matchLen: firstName.length });
   });
   if (!matches.length) return { best: null, candidates: [], ambiguous: false };
   const maxLen = Math.max(...matches.map(m => m.matchLen));
@@ -1698,11 +1705,12 @@ function startVoiceSale() {
     let excludeRanges = [];
     const clientForExclusion = client || (clientResult.candidates[0] || null);
     if (clientForExclusion) {
+      const phoneticNormalized = phoneticKey(normalized);
       const cName = normalizeVoiceText(clientForExclusion.name);
       const cFirst = cName.split(' ')[0];
-      let idx = normalized.indexOf(cName);
+      let idx = phoneticNormalized.indexOf(phoneticKey(cName));
       let len = cName.length;
-      if (idx === -1) { idx = normalized.indexOf(cFirst); len = cFirst.length; }
+      if (idx === -1) { idx = phoneticNormalized.indexOf(phoneticKey(cFirst)); len = cFirst.length; }
       if (idx > -1) excludeRanges.push([idx, len]);
     }
 
