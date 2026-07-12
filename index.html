@@ -1512,7 +1512,7 @@ let voiceSaleRecognition = null;
 function normalizeVoiceText(s) {
   return (s || '').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove acentos
-    .replace(/[^\w\s,.]/g, ' ')
+    .replace(/[^\w\s,.$]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -1540,14 +1540,15 @@ function wordsToNumber(text) {
 
 function parseMoneyFromVoice(rawText) {
   const text = normalizeVoiceText(rawText);
-  let m = text.match(/(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)\s*(?:reais?|conto|contos)?/);
+  // exige "R$" ou "reais/conto(s)" junto ao número — evita confundir uma quantidade solta com valor em dinheiro
+  let m = text.match(/r\$\s*(\d+(?:[.,]\d{1,2})?)/) || text.match(/(\d+(?:[.,]\d{1,2})?)\s*(?:reais?|conto|contos)\b/);
   if (m) {
     const val = parseFloat(m[1].replace(',', '.'));
     if (!isNaN(val) && val > 0) return val;
   }
-  const idx = text.indexOf('real');
-  if (idx > -1) {
-    const before = text.slice(0, idx).trim();
+  const realMatch = text.match(/reais?/);
+  if (realMatch) {
+    const before = text.slice(0, realMatch.index).trim();
     const val = wordsToNumber(before);
     if (val) return val;
   }
@@ -1641,6 +1642,9 @@ function findProductsInVoice(rawText, excludeRanges) {
     .sort((a, b) => b.norm.length - a.norm.length); // nomes mais longos/específicos primeiro
 
   const found = [];
+  const matchedCodes = new Set();
+
+  // TIER 1: nome completo cadastrado (com variações de plural na última palavra)
   candidates.forEach(({ p, norm }) => {
     const forms = buildProductSearchForms(norm);
     let idx = -1, matchedForm = norm;
@@ -1651,10 +1655,33 @@ function findProductsInVoice(rawText, excludeRanges) {
     if (idx === -1) return;
     const qtyInfo = extractQtyBefore(text, idx);
     found.push({ productCode: p.code, productName: p.name, qty: qtyInfo.qty, unitPrice: p.price });
+    matchedCodes.add(p.code);
     // apaga só o que foi realmente usado: a palavra de quantidade (se achada) + o nome do produto
     const eraseStart = qtyInfo.start !== null ? qtyInfo.start : idx;
     text = blankRange(text, eraseStart, (idx - eraseStart) + matchedForm.length);
   });
+
+  // TIER 2: correspondência por início da palavra (ex: "pão" encontra "Pãozinho", "coca" encontra "Coca-cola")
+  // só é aceita quando bate em EXATAMENTE um produto ainda não identificado, para nunca arriscar errar.
+  let remaining = candidates.filter(({ p }) => !matchedCodes.has(p.code));
+  const tokenMatches = [...text.matchAll(/[a-z]{3,}/g)];
+  tokenMatches.forEach(tok => {
+    const word = tok[0];
+    const idx = tok.index;
+    const hits = remaining.filter(({ norm }) => {
+      const firstWord = norm.split(' ')[0];
+      return firstWord.length >= 3 && (firstWord.startsWith(word) || word.startsWith(firstWord));
+    });
+    if (hits.length !== 1) return; // ambíguo ou nenhum — não arrisca
+    const { p } = hits[0];
+    const qtyInfo = extractQtyBefore(text, idx);
+    found.push({ productCode: p.code, productName: p.name, qty: qtyInfo.qty, unitPrice: p.price });
+    matchedCodes.add(p.code);
+    remaining = remaining.filter(r => r.p.code !== p.code);
+    const eraseStart = qtyInfo.start !== null ? qtyInfo.start : idx;
+    text = blankRange(text, eraseStart, (idx - eraseStart) + word.length);
+  });
+
   return found;
 }
 
