@@ -1688,35 +1688,50 @@ function startVoiceSale() {
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
+  // Se já tem cliente selecionado (por voz ou manualmente), esse ditado é só para produtos —
+  // não precisa repetir o nome do cliente.
+  const productsOnlyMode = !!document.getElementById('sale-client').value;
+
   btn.textContent = '🔴 Ouvindo...';
   btn.disabled = true;
   statusEl.style.color = 'var(--muted)';
-  statusEl.textContent = 'Fale agora: cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"';
+  statusEl.textContent = productsOnlyMode
+    ? 'Fale só os produtos. Ex: "dois pães e uma coca-cola"'
+    : 'Fale agora: cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"';
   transcriptEl.textContent = '';
 
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
     transcriptEl.textContent = `"${transcript}"`;
-    const normalized = normalizeVoiceText(transcript);
-    const clientResult = findClientCandidatesInVoice(transcript);
-    const client = clientResult.best;
 
-    // marca o trecho do nome do cliente (ou do primeiro candidato ambíguo) para excluir da busca de produtos
-    let excludeRanges = [];
-    const clientForExclusion = client || (clientResult.candidates[0] || null);
-    if (clientForExclusion) {
-      const phoneticNormalized = phoneticKey(normalized);
-      const cName = normalizeVoiceText(clientForExclusion.name);
-      const cFirst = cName.split(' ')[0];
-      let idx = phoneticNormalized.indexOf(phoneticKey(cName));
-      let len = cName.length;
-      if (idx === -1) { idx = phoneticNormalized.indexOf(phoneticKey(cFirst)); len = cFirst.length; }
-      if (idx > -1) excludeRanges.push([idx, len]);
+    let clientResult, client, items;
+
+    if (productsOnlyMode) {
+      // Já tem cliente selecionado — não tenta identificar cliente, só procura produtos na frase inteira
+      clientResult = { best: null, candidates: [], ambiguous: false };
+      client = null;
+      items = findProductsInVoice(transcript, []);
+    } else {
+      const normalized = normalizeVoiceText(transcript);
+      clientResult = findClientCandidatesInVoice(transcript);
+      client = clientResult.best;
+
+      // marca o trecho do nome do cliente (ou do primeiro candidato ambíguo) para excluir da busca de produtos
+      let excludeRanges = [];
+      const clientForExclusion = client || (clientResult.candidates[0] || null);
+      if (clientForExclusion) {
+        const phoneticNormalized = phoneticKey(normalized);
+        const cName = normalizeVoiceText(clientForExclusion.name);
+        const cFirst = cName.split(' ')[0];
+        let idx = phoneticNormalized.indexOf(phoneticKey(cName));
+        let len = cName.length;
+        if (idx === -1) { idx = phoneticNormalized.indexOf(phoneticKey(cFirst)); len = cFirst.length; }
+        if (idx > -1) excludeRanges.push([idx, len]);
+      }
+      items = findProductsInVoice(transcript, excludeRanges);
+      if (client) document.getElementById('sale-client').value = client.code;
     }
 
-    const items = findProductsInVoice(transcript, excludeRanges);
-
-    if (client) document.getElementById('sale-client').value = client.code;
     items.forEach(it => addSaleItemRow(it.productCode, it.qty, it.unitPrice));
 
     // fallback: nenhum produto do catálogo reconhecido, mas achou um valor em reais falado
@@ -1736,11 +1751,17 @@ function startVoiceSale() {
     }
 
     let parts = [];
-    if (clientResult.ambiguous) parts.push('⚠️ Nome de cliente ambíguo — escolha abaixo');
-    else parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
+    if (productsOnlyMode) {
+      const cli = data.clients.find(c => c.code === document.getElementById('sale-client').value);
+      parts.push(cli ? `Cliente: ${cli.name} (já selecionado)` : 'Cliente já selecionado');
+    } else if (clientResult.ambiguous) {
+      parts.push('⚠️ Nome de cliente ambíguo — escolha abaixo');
+    } else {
+      parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
+    }
     parts.push(items.length ? `${items.length} produto(s) identificado(s) ✓` : 'Nenhum produto do catálogo reconhecido — confira os itens');
     statusEl.textContent = parts.join(' | ');
-    statusEl.style.color = clientResult.ambiguous ? 'var(--accent2)' : (client && items.length ? 'var(--green)' : 'var(--accent2)');
+    statusEl.style.color = clientResult.ambiguous ? 'var(--accent2)' : ((client || productsOnlyMode) && items.length ? 'var(--green)' : 'var(--accent2)');
   };
   recognition.onerror = (event) => {
     statusEl.textContent = event.error === 'not-allowed'
