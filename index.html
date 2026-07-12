@@ -1620,6 +1620,11 @@ function pluralVariants(word) {
   } else {
     variants.add(word + 's');
   }
+  // "ão" no MEIO da palavra (ex: diminutivos como "pãozinho" → plural "pãezinhos")
+  const aoIdx = word.indexOf('ao');
+  if (aoIdx > -1 && aoIdx + 2 < word.length) {
+    variants.add(word.slice(0, aoIdx) + 'ae' + word.slice(aoIdx + 2) + 's');
+  }
   return [...variants];
 }
 // Constrói as formas de busca de um nome de produto (singular + variações no plural da última palavra)
