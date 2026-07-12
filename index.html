@@ -487,7 +487,7 @@
   <div id="voice-sale-box" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
     <button class="btn btn-secondary" id="voice-sale-btn" onclick="startVoiceSale()" style="flex-shrink:0">🎤 Ditar Venda</button>
     <div style="flex:1;min-width:200px">
-      <div id="voice-sale-status" style="font-size:.8rem;color:var(--muted)">Diga o nome do cliente e o valor. Ex: "Maria, 50 reais"</div>
+      <div id="voice-sale-status" style="font-size:.8rem;color:var(--muted)">Diga o cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"</div>
       <div id="voice-sale-transcript" style="font-size:.85rem;color:var(--accent2);margin-top:.2rem;font-style:italic"></div>
     </div>
   </div>
@@ -1539,13 +1539,11 @@ function wordsToNumber(text) {
 
 function parseMoneyFromVoice(rawText) {
   const text = normalizeVoiceText(rawText);
-  // Padrão numérico: "50 reais", "r$ 50", "50,00", "50 reais e 50 centavos"
   let m = text.match(/(?:r\$\s*)?(\d+(?:[.,]\d{1,2})?)\s*(?:reais?|conto|contos)?/);
   if (m) {
     const val = parseFloat(m[1].replace(',', '.'));
     if (!isNaN(val) && val > 0) return val;
   }
-  // Padrão por extenso: "cinquenta reais", "trinta e cinco reais"
   const idx = text.indexOf('real');
   if (idx > -1) {
     const before = text.slice(0, idx).trim();
@@ -1565,6 +1563,80 @@ function findClientInVoice(rawText) {
     else if (firstName && firstName.length > 2 && text.includes(firstName) && firstName.length > bestLen) { best = c; bestLen = firstName.length; }
   });
   return best;
+}
+
+// Blanca (apaga) um trecho do texto mantendo o mesmo tamanho, para não interferir em buscas seguintes
+function blankRange(text, start, len) {
+  return text.slice(0, start) + ' '.repeat(len) + text.slice(start + len);
+}
+
+// Procura um número (quantidade) nas ~4 palavras imediatamente antes de um índice do texto.
+// Retorna {qty, start, end} — start/end é a posição exata da palavra de quantidade (ou null se não achou, assume 1).
+function extractQtyBefore(text, matchIndex) {
+  const beforeText = text.slice(0, matchIndex);
+  const tokens = [...beforeText.matchAll(/\S+/g)];
+  const window = tokens.slice(-4);
+  for (let i = window.length - 1; i >= 0; i--) {
+    const tok = window[i];
+    const w = tok[0];
+    if (/^\d+$/.test(w)) return { qty: parseInt(w), start: tok.index, end: tok.index + w.length };
+    if (w in NUM_WORDS && NUM_WORDS[w] > 0 && NUM_WORDS[w] <= 50) return { qty: NUM_WORDS[w], start: tok.index, end: tok.index + w.length };
+  }
+  return { qty: 1, start: null, end: null };
+}
+
+// Gera variações plurais comuns do português para a última palavra de um nome de produto
+function pluralVariants(word) {
+  const variants = new Set([word]);
+  if (word.endsWith('ao') && word.length > 2) {
+    const stem = word.slice(0, -2);
+    variants.add(stem + 'oes'); variants.add(stem + 'aes'); variants.add(stem + 'aos');
+  } else if (word.endsWith('l') && word.length > 1) {
+    variants.add(word.slice(0, -1) + 'is');
+  } else if (word.endsWith('m') && word.length > 1) {
+    variants.add(word.slice(0, -1) + 'ns');
+  } else if (/[rsz]$/.test(word)) {
+    variants.add(word + 'es');
+  } else {
+    variants.add(word + 's');
+  }
+  return [...variants];
+}
+// Constrói as formas de busca de um nome de produto (singular + variações no plural da última palavra)
+function buildProductSearchForms(normName) {
+  const words = normName.split(' ');
+  const last = words[words.length - 1];
+  const prefix = words.slice(0, -1).join(' ');
+  return pluralVariants(last).map(v => (prefix ? prefix + ' ' + v : v));
+}
+
+// Identifica produtos citados no texto (nome do produto + quantidade opcional antes dele)
+function findProductsInVoice(rawText, excludeRanges) {
+  let text = normalizeVoiceText(rawText);
+  // apaga trechos já usados (ex: nome do cliente) para não confundir
+  (excludeRanges || []).forEach(([start, len]) => { text = blankRange(text, start, len); });
+
+  const candidates = data.products
+    .map(p => ({ p, norm: normalizeVoiceText(p.name) }))
+    .filter(x => x.norm.length > 2)
+    .sort((a, b) => b.norm.length - a.norm.length); // nomes mais longos/específicos primeiro
+
+  const found = [];
+  candidates.forEach(({ p, norm }) => {
+    const forms = buildProductSearchForms(norm);
+    let idx = -1, matchedForm = norm;
+    for (const form of forms) {
+      idx = text.indexOf(form);
+      if (idx > -1) { matchedForm = form; break; }
+    }
+    if (idx === -1) return;
+    const qtyInfo = extractQtyBefore(text, idx);
+    found.push({ productCode: p.code, productName: p.name, qty: qtyInfo.qty, unitPrice: p.price });
+    // apaga só o que foi realmente usado: a palavra de quantidade (se achada) + o nome do produto
+    const eraseStart = qtyInfo.start !== null ? qtyInfo.start : idx;
+    text = blankRange(text, eraseStart, (idx - eraseStart) + matchedForm.length);
+  });
+  return found;
 }
 
 function startVoiceSale() {
@@ -1587,27 +1659,41 @@ function startVoiceSale() {
   btn.textContent = '🔴 Ouvindo...';
   btn.disabled = true;
   statusEl.style.color = 'var(--muted)';
-  statusEl.textContent = 'Fale agora: nome do cliente e o valor...';
+  statusEl.textContent = 'Fale agora: cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"';
   transcriptEl.textContent = '';
 
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
     transcriptEl.textContent = `"${transcript}"`;
+    const normalized = normalizeVoiceText(transcript);
     const client = findClientInVoice(transcript);
-    const value = parseMoneyFromVoice(transcript);
 
+    // marca o trecho do nome do cliente para excluir da busca de produtos
+    let excludeRanges = [];
     if (client) {
-      document.getElementById('sale-client').value = client.code;
+      const cName = normalizeVoiceText(client.name);
+      const cFirst = cName.split(' ')[0];
+      let idx = normalized.indexOf(cName);
+      if (idx === -1) idx = normalized.indexOf(cFirst);
+      if (idx > -1) excludeRanges.push([idx, (idx===normalized.indexOf(cName)?cName.length:cFirst.length)]);
     }
-    if (value) {
-      addSaleItemRow('', 1, value);
+
+    const items = findProductsInVoice(transcript, excludeRanges);
+
+    if (client) document.getElementById('sale-client').value = client.code;
+    items.forEach(it => addSaleItemRow(it.productCode, it.qty, it.unitPrice));
+
+    // fallback: nenhum produto do catálogo reconhecido, mas achou um valor em reais falado
+    if (!items.length) {
+      const value = parseMoneyFromVoice(transcript);
+      if (value) addSaleItemRow('', 1, value);
     }
 
     let parts = [];
     parts.push(client ? `Cliente: ${client.name} ✓` : 'Cliente não identificado — selecione manualmente');
-    parts.push(value ? `Valor: ${fmtMoney(value)} ✓` : 'Valor não identificado');
-    statusEl.textContent = parts.join(' | ') + (value ? ' — escolha o produto e confirme.' : '');
-    statusEl.style.color = client && value ? 'var(--green)' : 'var(--accent2)';
+    parts.push(items.length ? `${items.length} produto(s) identificado(s) ✓` : 'Nenhum produto do catálogo reconhecido — confira os itens');
+    statusEl.textContent = parts.join(' | ');
+    statusEl.style.color = client && items.length ? 'var(--green)' : 'var(--accent2)';
   };
   recognition.onerror = (event) => {
     statusEl.textContent = event.error === 'not-allowed'
