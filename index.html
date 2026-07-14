@@ -37,6 +37,8 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:var(--bg); color:var(--text); font-family:'Syne',sans-serif; min-height:100vh; transition:background .2s,color .2s; }
   .theme-toggle { background:transparent; border:1px solid var(--border); color:var(--muted); width:36px; height:36px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:1.05rem; transition:.2s; }
+  @keyframes voice-pulse { 0%{box-shadow:0 0 0 0 rgba(255,61,90,.55)} 70%{box-shadow:0 0 0 12px rgba(255,61,90,0)} 100%{box-shadow:0 0 0 0 rgba(255,61,90,0)} }
+  #voice-sale-btn.listening { background:var(--red); color:#fff; border-color:var(--red); animation:voice-pulse 1.4s infinite; }
   .theme-toggle:hover { border-color:var(--accent); color:var(--accent); }
 
   /* HEADER */
@@ -489,6 +491,7 @@
 
   <div id="voice-sale-box" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
     <button class="btn btn-secondary" id="voice-sale-btn" onclick="startVoiceSale()" style="flex-shrink:0">🎤 Ditar Venda</button>
+    <button class="btn btn-secondary btn-sm" id="voice-feedback-toggle" onclick="toggleVoiceFeedback()" style="flex-shrink:0">🔇 Confirmação por voz: Desativada</button>
     <div style="flex:1;min-width:200px">
       <div id="voice-sale-status" style="font-size:.8rem;color:var(--muted)">Diga o cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"</div>
       <div id="voice-sale-transcript" style="font-size:.85rem;color:var(--accent2);margin-top:.2rem;font-style:italic"></div>
@@ -1511,6 +1514,38 @@ function populateSelects() {
 
 // ===== VENDA POR VOZ =====
 let voiceSaleRecognition = null;
+let voiceSaleTimeoutId = null;
+
+// Conectivos comuns que não devem ser confundidos com nome de produto (ex: "com" batendo com produto que começa com C)
+const VOICE_STOPWORDS = new Set(['e','com','mais','de','do','da','das','dos','no','na','nos','nas','pra','para','o','a','os','as','em']);
+
+// ===== FALA (Text-to-Speech) — confirmação opcional por voz =====
+function voiceFeedbackEnabled() {
+  try { return localStorage.getItem('pendura-voice-feedback') === '1'; } catch(e) { return false; }
+}
+function toggleVoiceFeedback() {
+  const enabled = !voiceFeedbackEnabled();
+  try { localStorage.setItem('pendura-voice-feedback', enabled ? '1' : '0'); } catch(e) {}
+  updateVoiceFeedbackBtn();
+  if (enabled) speak('Confirmação por voz ativada');
+}
+function updateVoiceFeedbackBtn() {
+  const btn = document.getElementById('voice-feedback-toggle');
+  if (!btn) return;
+  const on = voiceFeedbackEnabled();
+  btn.textContent = on ? '🔊 Confirmação por voz: Ativada' : '🔇 Confirmação por voz: Desativada';
+  btn.classList.toggle('btn-primary', on);
+  btn.classList.toggle('btn-secondary', !on);
+}
+function speak(text) {
+  if (!voiceFeedbackEnabled()) return;
+  if (!window.speechSynthesis) return;
+  try {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'pt-BR';
+    window.speechSynthesis.speak(utter);
+  } catch(e) {}
+}
 
 function normalizeVoiceText(s) {
   return (s || '').toLowerCase()
@@ -1689,7 +1724,7 @@ function findProductsInVoice(rawText, excludeRanges) {
   // TIER 2: correspondência por início da palavra (ex: "pão" encontra "Pãozinho", "coca" encontra "Coca-cola")
   // só é aceita quando bate em EXATAMENTE um produto ainda não identificado, para nunca arriscar errar.
   let remaining = candidates.filter(({ p }) => !matchedCodes.has(p.code));
-  const tokenMatches = [...text.matchAll(/[a-z]{3,}/g)];
+  const tokenMatches = [...text.matchAll(/[a-z]{3,}/g)].filter(t => !VOICE_STOPWORDS.has(t[0]));
   tokenMatches.forEach(tok => {
     const word = tok[0];
     const idx = tok.index;
@@ -1712,7 +1747,7 @@ function findProductsInVoice(rawText, excludeRanges) {
   // e só aceita o melhor casamento entre produto e trecho de texto, sem repetir nem ambiguidade.
   remaining = candidates.filter(({ p, norm }) => !matchedCodes.has(p.code) && !norm.includes(' '));
   if (remaining.length) {
-    const letterTokens = [...text.matchAll(/[a-z]+/g)].filter(t => t[0].length >= 3);
+    const letterTokens = [...text.matchAll(/[a-z]+/g)].filter(t => t[0].length >= 3 && !VOICE_STOPWORDS.has(t[0]));
     const spans = [];
     letterTokens.forEach(t => spans.push({ text: t[0], start: t.index, end: t.index + t[0].length }));
     letterTokens.forEach((t, i) => {
@@ -1775,6 +1810,7 @@ function startVoiceSale() {
     return;
   }
   if (voiceSaleRecognition) { try { voiceSaleRecognition.stop(); } catch(e) {} }
+  if (voiceSaleTimeoutId) { clearTimeout(voiceSaleTimeoutId); voiceSaleTimeoutId = null; }
   const recognition = new SpeechRecognitionAPI();
   voiceSaleRecognition = recognition;
   recognition.lang = 'pt-BR';
@@ -1786,12 +1822,24 @@ function startVoiceSale() {
   const productsOnlyMode = !!document.getElementById('sale-client').value;
 
   btn.textContent = '🔴 Ouvindo...';
+  btn.classList.add('listening');
   btn.disabled = true;
   statusEl.style.color = 'var(--muted)';
   statusEl.textContent = productsOnlyMode
     ? 'Fale só os produtos. Ex: "dois pães e uma coca-cola"'
     : 'Fale agora: cliente e os produtos. Ex: "Maria, dois pães e uma coca-cola"';
   transcriptEl.textContent = '';
+
+  // Timeout de segurança: se o reconhecimento "travar" sem disparar onend/onerror
+  // (acontece às vezes com oscilação de rede), destrava o botão sozinho.
+  voiceSaleTimeoutId = setTimeout(() => {
+    try { recognition.stop(); } catch(e) {}
+    btn.classList.remove('listening');
+    btn.textContent = '🎤 Ditar Venda';
+    btn.disabled = false;
+    statusEl.textContent = '⏱️ Tempo esgotado sem entender a fala. Tente novamente.';
+    statusEl.style.color = 'var(--red)';
+  }, 12000);
 
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript;
@@ -1855,6 +1903,11 @@ function startVoiceSale() {
     parts.push(items.length ? `${items.length} produto(s) identificado(s) ✓` : 'Nenhum produto do catálogo reconhecido — confira os itens');
     statusEl.textContent = parts.join(' | ');
     statusEl.style.color = clientResult.ambiguous ? 'var(--accent2)' : ((client || productsOnlyMode) && items.length ? 'var(--green)' : 'var(--accent2)');
+
+    // confirmação por voz (só se ativada nas preferências)
+    if (items.length) {
+      speak(`${items.length} ${items.length > 1 ? 'itens identificados' : 'item identificado'}.`);
+    }
   };
   recognition.onerror = (event) => {
     statusEl.textContent = event.error === 'not-allowed'
@@ -1863,10 +1916,14 @@ function startVoiceSale() {
     statusEl.style.color = 'var(--red)';
   };
   recognition.onend = () => {
+    if (voiceSaleTimeoutId) { clearTimeout(voiceSaleTimeoutId); voiceSaleTimeoutId = null; }
+    btn.classList.remove('listening');
     btn.textContent = '🎤 Ditar Venda';
     btn.disabled = false;
   };
   try { recognition.start(); } catch(e) {
+    if (voiceSaleTimeoutId) { clearTimeout(voiceSaleTimeoutId); voiceSaleTimeoutId = null; }
+    btn.classList.remove('listening');
     btn.textContent = '🎤 Ditar Venda';
     btn.disabled = false;
   }
@@ -1974,6 +2031,7 @@ async function addSale() {
   if (voicePickerEl) { voicePickerEl.style.display = 'none'; voicePickerEl.innerHTML = ''; }
   if(saleBtn) { saleBtn.disabled = false; saleBtn.textContent = '📌 Pendurar Venda'; }
   showToast(`Venda de ${fmtMoney(totalGeral)} registrada para ${cli.name} (${movPayload.length} item(ns))!`);
+  speak(`Venda registrada para ${cli.name}, ${movPayload.length} ${movPayload.length > 1 ? 'itens' : 'item'}.`);
 }
 
 // ===== PAYMENT =====
@@ -3081,6 +3139,7 @@ function refreshAll() {
 }
 
 initTheme();
+updateVoiceFeedbackBtn();
 
 // Set default dates
 document.getElementById('sale-date').value = today();
