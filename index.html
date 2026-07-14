@@ -136,6 +136,25 @@
   .top-product-bar-wrap { background:var(--surface); border-radius:4px; height:6px; margin-top:.3rem; overflow:hidden; }
   .top-product-bar { background:linear-gradient(90deg,var(--accent),var(--accent2)); height:100%; border-radius:4px; }
   .top-product-qty { font-family:'Space Mono'; font-size:.8rem; color:var(--muted); flex-shrink:0; }
+  .extrato-stats-row { display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; margin-bottom:1.25rem; }
+  .extrato-stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:.75rem; text-align:center; }
+  .extrato-stat-val { font-family:'Space Mono'; font-weight:700; font-size:1.05rem; }
+  .extrato-stat-lbl { font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-top:.2rem; }
+  .extrato-timeline { max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; }
+  .extrato-row { display:flex; align-items:center; gap:.75rem; padding:.75rem 1rem; border-bottom:1px solid var(--border); }
+  .extrato-row:last-child { border-bottom:none; }
+  .extrato-row-icon { font-size:1.15rem; flex-shrink:0; width:28px; text-align:center; }
+  .extrato-row-info { flex:1; min-width:0; }
+  .extrato-row-title { font-size:.85rem; font-weight:600; }
+  .extrato-row-date { font-size:.72rem; color:var(--muted); margin-top:.1rem; }
+  .extrato-row-values { text-align:right; flex-shrink:0; }
+  .extrato-row-value { font-family:'Space Mono'; font-weight:700; font-size:.88rem; }
+  .extrato-row-saldo { font-size:.65rem; color:var(--muted); margin-top:.1rem; font-family:'Space Mono'; }
+  @media(max-width:640px) {
+    .extrato-stats-row { gap:.5rem; }
+    .extrato-stat { padding:.5rem; }
+    .extrato-stat-val { font-size:.9rem; }
+  }
   @media(max-width:900px) {
     .dash-charts-row { grid-template-columns:1fr; }
   }
@@ -907,12 +926,13 @@
 
 <!-- MODAL EXTRATO CLIENTE -->
 <div id="modal-extrato" class="modal-overlay">
-  <div class="modal">
+  <div class="modal" style="max-width:560px">
     <h2 id="modal-client-title">Extrato do Cliente</h2>
     <div id="modal-extrato-body"></div>
     <div class="modal-footer" style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="closeModal('modal-extrato')">Fechar</button>
-      <button id="btn-whatsapp-extrato" class="btn" style="background:#25D366;color:#fff" onclick="sendExtratoWhatsApp()">📲 Enviar via WhatsApp</button>
+      <button class="btn btn-primary" onclick="shareExtratoPdf()">📲 Compartilhar PDF</button>
+      <button id="btn-whatsapp-extrato" class="btn" style="background:#25D366;color:#fff" onclick="sendExtratoWhatsApp()">💬 Enviar Texto</button>
     </div>
   </div>
 </div>
@@ -2312,6 +2332,8 @@ function openExtrato(clientCode) {
   if(!cli) return;
   const mvs=data.movements.filter(m=>m.clientCode===clientCode).sort((a,b)=>a.date.localeCompare(b.date));
   const debt=getClientDebt(clientCode);
+  const totalVendido = mvs.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
+  const totalPago = mvs.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
   document.getElementById('modal-client-title').textContent=`📄 ${cli.name} — ${cli.code}`;
   // Mostra/oculta botão WhatsApp conforme telefone cadastrado
   const btnWA = document.getElementById('btn-whatsapp-extrato');
@@ -2319,26 +2341,77 @@ function openExtrato(clientCode) {
   let saldo=0;
   const rows=mvs.map(m=>{
     if(m.type==='venda') saldo+=m.total; else saldo-=m.total;
-    return `<tr>
-      <td>${fmtDate(m.date)}</td>
-      <td>${esc(m.productName)}</td>
-      <td>${m.type==='pagamento'?'—':m.qty}</td>
-      <td style="color:${m.type==='venda'?'var(--red)':'var(--green)'};font-family:'Space Mono'">${m.type==='venda'?'- ':'+ '}${fmtMoney(m.total)}</td>
-      <td style="font-family:'Space Mono'">${fmtMoney(saldo)}</td>
-    </tr>`;
+    const isVenda = m.type==='venda';
+    return `<div class="extrato-row">
+      <div class="extrato-row-icon">${isVenda?'🛒':'💰'}</div>
+      <div class="extrato-row-info">
+        <div class="extrato-row-title">${esc(m.productName)}</div>
+        <div class="extrato-row-date">${fmtDate(m.date)}${!isVenda?'':` · ${m.qty}x ${fmtMoney(m.unitPrice)}`}</div>
+      </div>
+      <div class="extrato-row-values">
+        <div class="extrato-row-value" style="color:${isVenda?'var(--red)':'var(--green)'}">${isVenda?'- ':'+ '}${fmtMoney(m.total)}</div>
+        <div class="extrato-row-saldo">saldo: ${fmtMoney(saldo)}</div>
+      </div>
+    </div>`;
   }).join('');
   document.getElementById('modal-extrato-body').innerHTML=`
-    <p style="margin-bottom:1rem;color:var(--muted);font-size:.85rem">Tel: ${cli.phone||'—'}</p>
-    <div class="table-wrap" style="margin-bottom:1rem">
-      <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Qtd</th><th>Valor</th><th>Saldo</th></tr></thead>
-        <tbody>${rows||'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:1.5rem">Sem movimentações</td></tr>'}</tbody>
-      </table>
+    <p style="margin-bottom:1rem;color:var(--muted);font-size:.85rem">📞 ${cli.phone||'Sem telefone cadastrado'}</p>
+    <div class="extrato-stats-row">
+      <div class="extrato-stat">
+        <div class="extrato-stat-val" style="color:var(--red)">${fmtMoney(totalVendido)}</div>
+        <div class="extrato-stat-lbl">Total Vendido</div>
+      </div>
+      <div class="extrato-stat">
+        <div class="extrato-stat-val" style="color:var(--green)">${fmtMoney(totalPago)}</div>
+        <div class="extrato-stat-lbl">Total Pago</div>
+      </div>
+      <div class="extrato-stat">
+        <div class="extrato-stat-val" style="color:${debt>0?'var(--red)':'var(--green)'}">${fmtMoney(debt)}</div>
+        <div class="extrato-stat-lbl">Saldo Atual</div>
+      </div>
     </div>
-    <div style="text-align:right">
-      <strong style="font-family:\'Space Mono\';font-size:1.2rem;color:${debt>0?'var(--red)':'var(--green)'}">Saldo: ${fmtMoney(debt)}</strong>
-    </div>`;
+    <div class="extrato-timeline">${rows||'<p style="text-align:center;color:var(--muted);padding:1.5rem">Sem movimentações</p>'}</div>`;
   document.getElementById('modal-extrato').classList.add('open');
+}
+
+function shareExtratoPdf() {
+  const cli = data.clients.find(c => c.code === extratoClientCode);
+  if (!cli) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const mvs = data.movements.filter(m => m.clientCode === extratoClientCode).sort((a, b) => a.date.localeCompare(b.date));
+  const debt = getClientDebt(extratoClientCode);
+  const totalVendido = mvs.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
+  const totalPago = mvs.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
+
+  let y = pdfHeader(doc, `Extrato — ${cli.name}`, `Código: ${cli.code}${cli.phone ? ' • Tel: ' + cli.phone : ''}`);
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255,61,90); doc.text(`Vendido: ${fmtMoney(totalVendido)}`, 14, y);
+  doc.setTextColor(0,150,70); doc.text(`Pago: ${fmtMoney(totalPago)}`, 80, y);
+  doc.setTextColor(debt>0?255:0, debt>0?61:150, debt>0?90:70); doc.text(`Saldo: ${fmtMoney(debt)}`, 140, y);
+  doc.setTextColor(20,20,20);
+  y += 10;
+
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+  if (!mvs.length) { doc.text('Nenhuma movimentação registrada.', 14, y); }
+  let saldo = 0;
+  mvs.forEach(m => {
+    if (m.type === 'venda') saldo += m.total; else saldo -= m.total;
+    y = pdfCheckPageBreak(doc, y, 8);
+    const isVenda = m.type === 'venda';
+    doc.setFont('helvetica', 'bold'); doc.text(m.productName, 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(isVenda?255:0, isVenda?61:150, isVenda?90:70);
+    doc.text(`${isVenda?'- ':'+ '}${fmtMoney(m.total)}`, 196, y, { align: 'right' });
+    doc.setTextColor(20,20,20);
+    doc.setFontSize(8); doc.setTextColor(130,130,130);
+    doc.text(`${fmtDate(m.date)}${isVenda ? ' • '+m.qty+'x '+fmtMoney(m.unitPrice) : ''} • saldo: ${fmtMoney(saldo)}`, 14, y+4);
+    doc.setTextColor(20,20,20); doc.setFontSize(9);
+    y += 9;
+  });
+
+  pdfFooter(doc);
+  sharePdfBlob(doc, `extrato-${cli.code}-${today()}.pdf`);
 }
 
 function sendExtratoWhatsApp() {
