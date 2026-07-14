@@ -125,6 +125,20 @@
 
   /* CARDS */
   .cards-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; margin-bottom:1.5rem; }
+  .dash-charts-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem; }
+  .dash-chart-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1.25rem 1.5rem; }
+  .dash-chart-card .section-title { margin-bottom:1rem; }
+  .top-product-row { display:flex; align-items:center; gap:.75rem; padding:.5rem 0; border-bottom:1px solid var(--border); }
+  .top-product-row:last-child { border-bottom:none; }
+  .top-product-rank { font-family:'Space Mono'; font-weight:700; color:var(--accent2); width:22px; flex-shrink:0; }
+  .top-product-info { flex:1; min-width:0; }
+  .top-product-name { font-size:.85rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .top-product-bar-wrap { background:var(--surface); border-radius:4px; height:6px; margin-top:.3rem; overflow:hidden; }
+  .top-product-bar { background:linear-gradient(90deg,var(--accent),var(--accent2)); height:100%; border-radius:4px; }
+  .top-product-qty { font-family:'Space Mono'; font-size:.8rem; color:var(--muted); flex-shrink:0; }
+  @media(max-width:900px) {
+    .dash-charts-row { grid-template-columns:1fr; }
+  }
   .stat-card {
     background:var(--card); border:1px solid var(--border); border-radius:10px;
     padding:1.25rem 1.5rem;
@@ -478,6 +492,17 @@
     <div class="stat-card warn" id="dash-card-encomendas" style="cursor:pointer" onclick="showPage('encomendas')">
       <div class="stat-num yellow" id="dash-encomendas-pendentes">0</div>
       <div class="stat-lbl">📦 Encomendas Abertas</div>
+    </div>
+  </div>
+
+  <div class="dash-charts-row">
+    <div class="dash-chart-card">
+      <div class="section-title" style="font-size:1.1rem">Vendas — Últimos 7 Dias</div>
+      <div id="dash-sales-chart"></div>
+    </div>
+    <div class="dash-chart-card">
+      <div class="section-title" style="font-size:1.1rem">Produtos Mais Vendidos (Mês)</div>
+      <div id="dash-top-products"></div>
     </div>
   </div>
 
@@ -2179,6 +2204,9 @@ function renderDashboard() {
   const encAbertas = data.orders.filter(o => o.status !== 'entregue').length;
   document.getElementById('dash-encomendas-pendentes').textContent = encAbertas;
 
+  renderSalesChart();
+  renderTopProducts();
+
   // client debt cards
   const list=document.getElementById('client-debts-list');
   if(!list) return;
@@ -2198,6 +2226,81 @@ function renderDashboard() {
         <button class="btn btn-secondary btn-sm" onclick="openExtrato('${c.code}')">📄 Extrato</button>
         ${c.debt>0?`<button class="btn btn-success btn-sm" onclick="goToPay('${c.code}')">💰 Pagar</button>`:''}
       </div>
+    </div>`).join('');
+}
+
+// Gráfico SVG de vendas dos últimos 7 dias, sem dependências externas
+function renderSalesChart() {
+  const el = document.getElementById('dash-sales-chart');
+  if (!el) return;
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const total = data.movements
+      .filter(m => m.type === 'venda' && m.date === dateStr)
+      .reduce((s, m) => s + m.total, 0);
+    days.push({ date: dateStr, total, label: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()] });
+  }
+  const maxVal = Math.max(...days.map(d => d.total), 1);
+  const w = 100, h = 46, padTop = 6, padBottom = 14, chartH = h - padTop - padBottom;
+  const stepX = w / days.length;
+  const points = days.map((d, i) => {
+    const x = stepX * i + stepX / 2;
+    const y = padTop + chartH - (d.total / maxVal) * chartH;
+    return { x, y, d };
+  });
+  const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+  const areaPath = linePath + ` L${points[points.length-1].x.toFixed(1)},${(padTop+chartH).toFixed(1)} L${points[0].x.toFixed(1)},${(padTop+chartH).toFixed(1)} Z`;
+
+  const svg = `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#salesGrad)"/>
+      <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+      ${points.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1.4" fill="var(--accent2)"/>`).join('')}
+    </svg>
+    <div style="display:flex;justify-content:space-between;margin-top:.25rem">
+      ${days.map(d => `<div style="flex:1;text-align:center"><div style="font-size:.65rem;color:var(--muted)">${d.label}</div></div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:.15rem">
+      ${days.map(d => `<div style="flex:1;text-align:center"><div style="font-size:.62rem;font-family:'Space Mono';color:${d.total>0?'var(--accent2)':'var(--muted)'}">${d.total>0?fmtMoney(d.total).replace('R$ ',''):'—'}</div></div>`).join('')}
+    </div>`;
+  el.innerHTML = svg;
+}
+
+// Ranking dos produtos mais vendidos no mês corrente (por quantidade)
+function renderTopProducts() {
+  const el = document.getElementById('dash-top-products');
+  if (!el) return;
+  const monthStr = thisMonth();
+  const qtyByProduct = {};
+  data.movements
+    .filter(m => m.type === 'venda' && m.date.startsWith(monthStr))
+    .forEach(m => {
+      if (!qtyByProduct[m.productCode]) qtyByProduct[m.productCode] = { name: m.productName, qty: 0 };
+      qtyByProduct[m.productCode].qty += m.qty;
+    });
+  const ranked = Object.values(qtyByProduct).sort((a, b) => b.qty - a.qty).slice(0, 5);
+  if (!ranked.length) {
+    el.innerHTML = '<p style="font-size:.82rem;color:var(--muted);padding:.5rem 0">Nenhuma venda registrada este mês ainda.</p>';
+    return;
+  }
+  const maxQty = ranked[0].qty;
+  el.innerHTML = ranked.map((p, i) => `
+    <div class="top-product-row">
+      <div class="top-product-rank">${i + 1}º</div>
+      <div class="top-product-info">
+        <div class="top-product-name">${esc(p.name)}</div>
+        <div class="top-product-bar-wrap"><div class="top-product-bar" style="width:${Math.max(6,(p.qty/maxQty)*100)}%"></div></div>
+      </div>
+      <div class="top-product-qty">${p.qty}x</div>
     </div>`).join('');
 }
 
