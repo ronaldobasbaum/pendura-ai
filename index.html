@@ -91,12 +91,12 @@
   .form-inline-4 .form-group-btn { grid-column:1/-1; display:flex; justify-content:flex-end; }
   .form-group { display:flex; flex-direction:column; gap:.4rem; }
   label { font-size:.75rem; text-transform:uppercase; letter-spacing:1px; color:var(--muted); font-weight:600; }
-  input, select {
+  input, select, textarea {
     background:var(--card); border:1px solid var(--border); color:var(--text);
     padding:.6rem .9rem; border-radius:6px; font-family:'Syne'; font-size:.9rem;
     outline:none; transition:.2s;
   }
-  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,77,0,.15); }
+  input:focus, select:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(255,77,0,.15); }
   input::placeholder { color:var(--muted); }
 
   .btn {
@@ -112,7 +112,7 @@
   .btn-success { background:var(--green); color:#000; }
   .btn-success.btn-sm { font-size:.72rem; padding:.35rem .75rem; }
   .btn-sm { font-size:.72rem; padding:.35rem .75rem; }
-  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
     outline:3px solid color-mix(in srgb, var(--accent) 70%, white);
     outline-offset:2px;
   }
@@ -187,6 +187,10 @@
   .badge-pending { background:rgba(255,184,0,.15); color:var(--accent2); border:1px solid rgba(255,184,0,.3); }
   .badge-paid { background:rgba(0,230,118,.12); color:var(--green); border:1px solid rgba(0,230,118,.25); }
   .badge-overdue { background:rgba(255,61,90,.12); color:var(--red); border:1px solid rgba(255,61,90,.25); }
+  .badge-canceled { background:rgba(136,136,136,.12); color:var(--muted); border:1px solid rgba(136,136,136,.3); }
+  .movement-canceled { opacity:.58; }
+  .movement-canceled td { text-decoration-color:var(--muted); }
+  .cancel-audit { display:block; margin-top:.35rem; color:var(--muted); font-size:.7rem; line-height:1.35; }
 
   /* DEBTS per client */
   .client-debt-card {
@@ -309,7 +313,7 @@
     .form-grid { grid-template-columns:1fr !important; gap:.75rem; }
     .form-group [style*="grid-column"] { grid-column:span 1 !important; }
     label { font-size:.72rem; }
-    input, select { font-size:1rem; padding:.65rem .8rem; }
+    input, select, textarea { font-size:1rem; padding:.65rem .8rem; }
     .btn { padding:.7rem 1.2rem; font-size:.82rem; min-height:44px; }
     .btn-sm { font-size:.72rem; padding:.45rem .7rem; min-height:38px; }
     .btn-danger.btn-sm, .btn-success.btn-sm { min-height:38px; padding:.45rem .8rem; }
@@ -772,6 +776,14 @@
       </select>
     </div>
     <div class="form-group">
+      <label>Status</label>
+      <select id="filter-status" onchange="renderMovements()">
+        <option value="">Todos</option>
+        <option value="ativo">Ativos</option>
+        <option value="cancelado">Cancelados</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label>Data Inicial</label>
       <input type="date" id="filter-date-from" onchange="renderMovements()">
     </div>
@@ -915,6 +927,24 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-pagamento')">Cancelar</button>
       <button id="quick-payment-submit-btn" class="btn btn-success" onclick="submitQuickPayment()">✅ Confirmar Pagamento</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CANCELAR MOVIMENTAÇÃO -->
+<div id="modal-cancel-movement" class="modal-overlay">
+  <div class="modal" style="max-width:440px">
+    <h2>↩️ Cancelar lançamento</h2>
+    <input type="hidden" id="cancel-movement-id">
+    <div id="cancel-movement-summary" style="background:var(--card);border-radius:8px;padding:1rem;margin:1rem 0"></div>
+    <div class="form-group">
+      <label>Motivo do cancelamento</label>
+      <textarea id="cancel-movement-reason" rows="3" maxlength="240" placeholder="Ex.: lançamento duplicado ou valor incorreto"></textarea>
+      <small style="color:var(--muted)">O lançamento continuará visível no histórico.</small>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-cancel-movement')">Voltar</button>
+      <button id="cancel-movement-submit-btn" class="btn btn-danger" onclick="submitCancelMovement()">Confirmar cancelamento</button>
     </div>
   </div>
 </div>
@@ -1213,7 +1243,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 let data = { clients: [], products: [], movements: [], orders: [] };
 let movementsDisplayLimit = 50;
 const MOVEMENTS_PAGE_SIZE = 50;
-const REQUIRED_BACKEND_VERSION = '2026-07-22.1';
+const REQUIRED_BACKEND_VERSION = '2026-07-25.1';
 let currentUser = null;
 let currentProfile = null;
 let secureBackendReady = false;
@@ -1365,6 +1395,11 @@ function esc(s) {
 }
 function eventArg(value) { return esc(JSON.stringify(String(value ?? ''))); }
 function fmtDate(d) { if(!d) return '-'; let p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+function fmtDateTime(value) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '-' : parsed.toLocaleString('pt-BR');
+}
 function localDateISO(date = new Date()) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return local.toISOString().split('T')[0];
@@ -1430,7 +1465,13 @@ async function loadAll() {
       id:m.id, type:m.type, clientCode:m.client_code, clientName:m.client_name,
       productCode:m.product_code, productName:m.product_name,
       qty:Number(m.qty), unitPrice:Number(m.unit_price), total:Number(m.total),
-      date:m.date, obs:m.obs, createdAt:m.created_at
+      date:m.date, obs:m.obs, createdAt:m.created_at,
+      transactionId:m.transaction_id || m.id,
+      status:m.status || 'ativo',
+      canceledAt:m.canceled_at,
+      canceledReason:m.canceled_reason,
+      canceledBy:m.canceled_by,
+      sourceOrderId:m.source_order_id
     }));
     movementsDisplayLimit = MOVEMENTS_PAGE_SIZE;
     data.movements = rawMovements;
@@ -1473,11 +1514,27 @@ function showPage(id) {
 function getClientDebt(clientCode) {
   let debt = 0;
   data.movements.forEach(m => {
-    if(m.clientCode !== clientCode) return;
+    if(m.clientCode !== clientCode || !isActiveMovement(m)) return;
     if(m.type === 'venda') debt += m.total;
     if(m.type === 'pagamento') debt -= m.total;
   });
   return Math.max(0, debt);
+}
+
+function isActiveMovement(movement) {
+  return movement?.status !== 'cancelado';
+}
+
+function activeMovements() {
+  return data.movements.filter(isActiveMovement);
+}
+
+function countSaleTransactions(movements) {
+  return new Set(
+    movements
+      .filter(m => m.type === 'venda' && isActiveMovement(m))
+      .map(m => m.transactionId || m.id)
+  ).size;
 }
 
 // ===== CLIENTS =====
@@ -2145,18 +2202,20 @@ async function addSale() {
   const validItems = newSaleItems.filter(it => it.productCode && !isNaN(parseFloat(it.unitPrice)) && parseFloat(it.unitPrice)>=0 && (parseInt(it.qty)||0)>0);
   if (!validItems.length) { if(saleBtn){saleBtn.disabled=false;saleBtn.textContent='📌 Pendurar Venda';} return showToast('Adicione ao menos um item válido!',true); }
   const cli=data.clients.find(c=>c.code===clientCode);
+  const transactionId = 'V' + Date.now() + Math.random().toString(36).slice(2,8);
   const movPayload = validItems.map((it, idx) => {
     const prod = data.products.find(p=>p.code===it.productCode);
     const qty = parseInt(it.qty);
     const unitPrice = parseFloat(it.unitPrice);
     return {
-      id: 'M'+Date.now()+idx+Math.random().toString(36).slice(2,6),
+      id: transactionId + '-' + idx,
       type:'venda', client_code:clientCode, client_name:cli.name,
       product_code:it.productCode, product_name:prod?prod.name:it.productCode,
       qty, unit_price:unitPrice, total:unitPrice*qty, date, obs, user_id:currentUser.id
     };
   });
   const {error}=await db.rpc('pendura_add_sale', {
+    p_transaction_id: transactionId,
     p_client_code: clientCode,
     p_date: date,
     p_obs: obs,
@@ -2176,7 +2235,8 @@ async function addSale() {
       id:m.id, type:'venda', clientCode:m.client_code, clientName:m.client_name,
       productCode:m.product_code, productName:m.product_name,
       qty:m.qty, unitPrice:m.unit_price, total:m.total, date:m.date, obs:m.obs,
-      createdAt:new Date().toISOString()
+      createdAt:new Date().toISOString(), transactionId, status:'ativo',
+      canceledAt:null, canceledReason:null, canceledBy:null, sourceOrderId:null
     });
   });
   const totalGeral = movPayload.reduce((s,m)=>s+m.total,0);
@@ -2249,7 +2309,8 @@ async function addPayment() {
     data.movements.unshift({
       id, type:'pagamento', clientCode, clientName:cli.name,
       productCode:'—', productName:'Pagamento recebido', qty:1, unitPrice:value, total:value, date, obs,
-      createdAt:new Date().toISOString()
+      createdAt:new Date().toISOString(), transactionId:id, status:'ativo',
+      canceledAt:null, canceledReason:null, canceledBy:null, sourceOrderId:null
     });
     refreshAll();
     document.getElementById('pay-client').value='';
@@ -2263,22 +2324,60 @@ async function addPayment() {
 }
 
 // ===== MOVEMENTS =====
-async function deleteMovement(id) {
-  if(!confirm('Excluir esta movimentação?')) return;
-  const {error}=await db.from('movements').delete().eq('id',id).eq('user_id',currentUser.id);
-  if(error) return showToast('Erro ao remover: '+error.message,true);
-  data.movements=data.movements.filter(m=>m.id!==id);
-  refreshAll(); showToast('Movimentação removida.');
+function openCancelMovement(id) {
+  const movement = data.movements.find(m => m.id === id);
+  if (!movement || !isActiveMovement(movement)) return;
+  const transactionId = movement.transactionId || movement.id;
+  const group = data.movements.filter(
+    m => (m.transactionId || m.id) === transactionId && isActiveMovement(m)
+  );
+  const total = group.reduce((sum, item) => sum + item.total, 0);
+  const isSale = movement.type === 'venda';
+  document.getElementById('cancel-movement-id').value = movement.id;
+  document.getElementById('cancel-movement-reason').value = '';
+  document.getElementById('cancel-movement-summary').innerHTML = `
+    <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Lançamento</div>
+    <div style="font-weight:700;margin:.35rem 0">${isSale ? 'Venda' : 'Pagamento'} · ${esc(movement.clientName)}</div>
+    <div style="font-family:'Space Mono';color:${isSale ? 'var(--red)' : 'var(--green)'}">${fmtMoney(total)}</div>
+    ${group.length > 1 ? `<div style="font-size:.75rem;color:var(--accent2);margin-top:.5rem">A venda completa, com ${group.length} itens, será cancelada.</div>` : ''}
+    ${movement.sourceOrderId ? '<div style="font-size:.75rem;color:var(--accent2);margin-top:.5rem">A encomenda voltará para o status “Pronto”.</div>' : ''}
+  `;
+  openModal('modal-cancel-movement');
+}
+
+async function submitCancelMovement() {
+  if (!requireSecureBackend()) return;
+  const id = document.getElementById('cancel-movement-id').value;
+  const reason = document.getElementById('cancel-movement-reason').value.trim();
+  const btn = document.getElementById('cancel-movement-submit-btn');
+  if (reason.length < 3) return showToast('Informe o motivo do cancelamento.', true);
+  if (btn?.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Cancelando...'; }
+  try {
+    const { data: result, error } = await db.rpc('pendura_cancel_movement', {
+      p_movement_id: id,
+      p_reason: reason
+    });
+    if (error) return showToast('Não foi possível cancelar: ' + error.message, true);
+    closeModal('modal-cancel-movement');
+    await loadAll();
+    const reopened = result?.reopened_order ? ' A encomenda foi reaberta como pronta.' : '';
+    showToast('Lançamento cancelado e mantido no histórico.' + reopened);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar cancelamento'; }
+  }
 }
 function renderMovements() {
   const tb=document.getElementById('movements-table'); if(!tb) return;
   const fc=document.getElementById('filter-client')?.value||'';
   const ft=document.getElementById('filter-type')?.value||'';
+  const fs=document.getElementById('filter-status')?.value||'';
   const fd1=document.getElementById('filter-date-from')?.value||'';
   const fd2=document.getElementById('filter-date-to')?.value||'';
   let mvs=[...data.movements].sort((a,b)=>b.date.localeCompare(a.date));
   if(fc) mvs=mvs.filter(m=>m.clientCode===fc);
   if(ft) mvs=mvs.filter(m=>m.type===ft);
+  if(fs) mvs=mvs.filter(m=>(m.status||'ativo')===fs);
   if(fd1) mvs=mvs.filter(m=>m.date>=fd1);
   if(fd2) mvs=mvs.filter(m=>m.date<=fd2);
   const loadMoreDiv = document.getElementById('movements-load-more');
@@ -2292,8 +2391,11 @@ function renderMovements() {
     if(countDiv) countDiv.textContent = totalFiltered > shown ? `Mostrando ${shown} de ${totalFiltered} movimentações` : `Total: ${totalFiltered} movimentações`;
   }
   tb.innerHTML=mvs.map((m,i)=>{
-    const badge=m.type==='venda'?'<span class="badge badge-pending">Venda</span>':'<span class="badge badge-paid">Pagamento</span>';
-    return `<tr>
+    const canceled=!isActiveMovement(m);
+    const typeBadge=m.type==='venda'?'<span class="badge badge-pending">Venda</span>':'<span class="badge badge-paid">Pagamento</span>';
+    const badge=canceled?`${typeBadge} <span class="badge badge-canceled">Cancelado</span>`:typeBadge;
+    const audit=canceled?`<span class="cancel-audit">Cancelado em ${fmtDateTime(m.canceledAt)}<br>Motivo: ${esc(m.canceledReason)}</span>`:'';
+    return `<tr class="${canceled?'movement-canceled':''}">
       <td data-label="#" style="color:var(--muted);font-size:.75rem">${i+1}</td>
       <td data-label="Data"><code style="font-size:.8rem">${fmtDate(m.date)}</code></td>
       <td data-label="Cliente" data-wide="true"><strong>${esc(m.clientName)}</strong><br><small style="color:var(--muted)">${esc(m.clientCode)}</small></td>
@@ -2301,8 +2403,8 @@ function renderMovements() {
       <td data-label="Quantidade" style="text-align:center">${m.type==='pagamento'?'—':m.qty}</td>
       <td data-label="Valor" style="font-family:'Space Mono';color:${m.type==='venda'?'var(--red)':'var(--green)'}">${m.type==='venda'?'-':'+'} ${fmtMoney(m.total)}</td>
       <td data-label="Tipo">${badge}</td>
-      <td data-label="Observação" data-wide="true" style="color:var(--muted);font-size:.8rem">${esc(m.obs)||'—'}</td>
-      <td data-label="Ações" data-wide="true"><button class="btn btn-danger btn-sm" onclick="deleteMovement(${eventArg(m.id)})">Excluir</button></td>
+      <td data-label="Observação" data-wide="true" style="color:var(--muted);font-size:.8rem">${esc(m.obs)||'—'}${audit}</td>
+      <td data-label="Ações" data-wide="true">${canceled?'<span style="font-size:.75rem;color:var(--muted)">Mantido no histórico</span>':`<button class="btn btn-danger btn-sm" onclick="openCancelMovement(${eventArg(m.id)})">Cancelar</button>`}</td>
     </tr>`;
   }).join('');
 }
@@ -2313,6 +2415,7 @@ function loadMoreMovements() {
 function clearFilters() {
   document.getElementById('filter-client').value='';
   document.getElementById('filter-type').value='';
+  document.getElementById('filter-status').value='';
   document.getElementById('filter-date-from').value='';
   document.getElementById('filter-date-to').value='';
   movementsDisplayLimit = MOVEMENTS_PAGE_SIZE;
@@ -2324,8 +2427,9 @@ function renderDashboard() {
   const totalPendente=data.clients.reduce((s,c)=>s+getClientDebt(c.code),0);
   const clientesDevendo=data.clients.filter(c=>getClientDebt(c.code)>0).length;
   const monthStr=thisMonth();
-  const recebidoMes=data.movements.filter(m=>m.type==='pagamento'&&m.date.startsWith(monthStr)).reduce((s,m)=>s+m.total,0);
-  const vendasMes=data.movements.filter(m=>m.type==='venda'&&m.date.startsWith(monthStr)).length;
+  const active = activeMovements();
+  const recebidoMes=active.filter(m=>m.type==='pagamento'&&m.date.startsWith(monthStr)).reduce((s,m)=>s+m.total,0);
+  const vendasMes=countSaleTransactions(active.filter(m=>m.date.startsWith(monthStr)));
 
   document.getElementById('dash-total-pendente').textContent=fmtMoney(totalPendente);
   document.getElementById('dash-clientes-devendo').textContent=clientesDevendo;
@@ -2333,7 +2437,7 @@ function renderDashboard() {
   document.getElementById('dash-vendas-mes').textContent=vendasMes;
   document.getElementById('h-total-debt').textContent=fmtMoney(totalPendente);
   document.getElementById('h-total-clients').textContent=data.clients.length;
-  const salesToday=data.movements.filter(m=>m.type==='venda'&&m.date===today()).length;
+  const salesToday=countSaleTransactions(active.filter(m=>m.date===today()));
   document.getElementById('h-sales-today').textContent=salesToday;
 
   // encomendas no dashboard
@@ -2374,7 +2478,7 @@ function renderSalesChart() {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const total = data.movements
+    const total = activeMovements()
       .filter(m => m.type === 'venda' && m.date === dateStr)
       .reduce((s, m) => s + m.total, 0);
     days.push({ date: dateStr, total, label: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()] });
@@ -2417,7 +2521,7 @@ function renderTopProducts() {
   if (!el) return;
   const monthStr = thisMonth();
   const qtyByProduct = {};
-  data.movements
+  activeMovements()
     .filter(m => m.type === 'venda' && m.date.startsWith(monthStr))
     .forEach(m => {
       if (!qtyByProduct[m.productCode]) qtyByProduct[m.productCode] = { name: m.productName, qty: 0 };
@@ -2447,26 +2551,30 @@ function openExtrato(clientCode) {
   const cli=data.clients.find(c=>c.code===clientCode);
   if(!cli) return;
   const mvs=data.movements.filter(m=>m.clientCode===clientCode).sort((a,b)=>a.date.localeCompare(b.date));
+  const active=mvs.filter(isActiveMovement);
   const debt=getClientDebt(clientCode);
-  const totalVendido = mvs.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
-  const totalPago = mvs.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
+  const totalVendido = active.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
+  const totalPago = active.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
   document.getElementById('modal-client-title').textContent=`📄 ${cli.name} — ${cli.code}`;
   // Mostra/oculta botão WhatsApp conforme telefone cadastrado
   const btnWA = document.getElementById('btn-whatsapp-extrato');
   btnWA.style.display = cli.phone ? '' : 'none';
   let saldo=0;
   const rows=mvs.map(m=>{
-    if(m.type==='venda') saldo+=m.total; else saldo-=m.total;
+    const canceled=!isActiveMovement(m);
+    if(!canceled) {
+      if(m.type==='venda') saldo+=m.total; else saldo-=m.total;
+    }
     const isVenda = m.type==='venda';
-    return `<div class="extrato-row">
-      <div class="extrato-row-icon">${isVenda?'🛒':'💰'}</div>
+    return `<div class="extrato-row ${canceled?'movement-canceled':''}">
+      <div class="extrato-row-icon">${canceled?'↩️':(isVenda?'🛒':'💰')}</div>
       <div class="extrato-row-info">
-        <div class="extrato-row-title">${esc(m.productName)}</div>
-        <div class="extrato-row-date">${fmtDate(m.date)}${!isVenda?'':` · ${m.qty}x ${fmtMoney(m.unitPrice)}`}</div>
+        <div class="extrato-row-title">${esc(m.productName)} ${canceled?'<span class="badge badge-canceled">Cancelado</span>':''}</div>
+        <div class="extrato-row-date">${fmtDate(m.date)}${!isVenda?'':` · ${m.qty}x ${fmtMoney(m.unitPrice)}`}${canceled?` · ${esc(m.canceledReason)}`:''}</div>
       </div>
       <div class="extrato-row-values">
-        <div class="extrato-row-value" style="color:${isVenda?'var(--red)':'var(--green)'}">${isVenda?'- ':'+ '}${fmtMoney(m.total)}</div>
-        <div class="extrato-row-saldo">saldo: ${fmtMoney(saldo)}</div>
+        <div class="extrato-row-value" style="color:${canceled?'var(--muted)':(isVenda?'var(--red)':'var(--green)')};${canceled?'text-decoration:line-through':''}">${isVenda?'- ':'+ '}${fmtMoney(m.total)}</div>
+        <div class="extrato-row-saldo">${canceled?'não contabilizado':'saldo: '+fmtMoney(saldo)}</div>
       </div>
     </div>`;
   }).join('');
@@ -2496,9 +2604,10 @@ function shareExtratoPdf() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const mvs = data.movements.filter(m => m.clientCode === extratoClientCode).sort((a, b) => a.date.localeCompare(b.date));
+  const active = mvs.filter(isActiveMovement);
   const debt = getClientDebt(extratoClientCode);
-  const totalVendido = mvs.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
-  const totalPago = mvs.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
+  const totalVendido = active.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
+  const totalPago = active.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
 
   let y = pdfHeader(doc, `Extrato — ${cli.name}`, `Código: ${cli.code}${cli.phone ? ' • Tel: ' + cli.phone : ''}`);
   doc.setFontSize(10); doc.setFont('helvetica', 'bold');
@@ -2512,16 +2621,19 @@ function shareExtratoPdf() {
   if (!mvs.length) { doc.text('Nenhuma movimentação registrada.', 14, y); }
   let saldo = 0;
   mvs.forEach(m => {
-    if (m.type === 'venda') saldo += m.total; else saldo -= m.total;
+    const canceled = !isActiveMovement(m);
+    if (!canceled) {
+      if (m.type === 'venda') saldo += m.total; else saldo -= m.total;
+    }
     y = pdfCheckPageBreak(doc, y, 8);
     const isVenda = m.type === 'venda';
-    doc.setFont('helvetica', 'bold'); doc.text(m.productName, 14, y);
+    doc.setFont('helvetica', 'bold'); doc.text(`${m.productName}${canceled?' [CANCELADO]':''}`, 14, y);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(isVenda?255:0, isVenda?61:150, isVenda?90:70);
+    doc.setTextColor(canceled?130:(isVenda?255:0), canceled?130:(isVenda?61:150), canceled?130:(isVenda?90:70));
     doc.text(`${isVenda?'- ':'+ '}${fmtMoney(m.total)}`, 196, y, { align: 'right' });
     doc.setTextColor(20,20,20);
     doc.setFontSize(8); doc.setTextColor(130,130,130);
-    doc.text(`${fmtDate(m.date)}${isVenda ? ' • '+m.qty+'x '+fmtMoney(m.unitPrice) : ''} • saldo: ${fmtMoney(saldo)}`, 14, y+4);
+    doc.text(`${fmtDate(m.date)}${isVenda ? ' • '+m.qty+'x '+fmtMoney(m.unitPrice) : ''} • ${canceled?'não contabilizado: '+m.canceledReason:'saldo: '+fmtMoney(saldo)}`, 14, y+4);
     doc.setTextColor(20,20,20); doc.setFontSize(9);
     y += 9;
   });
@@ -2539,10 +2651,15 @@ function sendExtratoWhatsApp() {
   let msg = `📄 *EXTRATO — ${cli.name}*\n`;
   msg += `📅 Gerado em ${fmtDate(today())}\n\n`;
   mvs.forEach(m => {
-    if (m.type === 'venda') saldo += m.total; else saldo -= m.total;
+    const canceled = !isActiveMovement(m);
+    if (!canceled) {
+      if (m.type === 'venda') saldo += m.total; else saldo -= m.total;
+    }
     const sinal = m.type === 'venda' ? '🔴 -' : '🟢 +';
-    msg += `${fmtDate(m.date)} | ${m.productName}\n`;
-    msg += `${sinal} ${fmtMoney(m.total)} | Saldo: ${fmtMoney(saldo)}\n\n`;
+    msg += `${fmtDate(m.date)} | ${m.productName}${canceled?' [CANCELADO]':''}\n`;
+    msg += canceled
+      ? `↩️ ${fmtMoney(m.total)} | Motivo: ${m.canceledReason}\n\n`
+      : `${sinal} ${fmtMoney(m.total)} | Saldo: ${fmtMoney(saldo)}\n\n`;
   });
   msg += `━━━━━━━━━━━━━━━\n`;
   msg += debt > 0 ? `🔴 *Saldo devedor: ${fmtMoney(debt)}*` : `🟢 *Sem débitos pendentes*`;
@@ -2557,7 +2674,7 @@ function openModal(id) {
   const modal = document.getElementById(id);
   if (!modal) return;
   modal.classList.add('open');
-  const focusTarget = modal.querySelector('input:not([type="hidden"]), select, button');
+  const focusTarget = modal.querySelector('input:not([type="hidden"]), textarea, select, button');
   setTimeout(() => focusTarget?.focus(), 100);
 }
 function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
@@ -2607,7 +2724,8 @@ async function submitQuickPayment() {
     data.movements.unshift({
       id, type: 'pagamento', clientCode, clientName: cli.name,
       productCode: '—', productName: 'Pagamento recebido', qty: 1, unitPrice: value, total: value, date, obs,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(), transactionId:id, status:'ativo',
+      canceledAt:null, canceledReason:null, canceledBy:null, sourceOrderId:null
     });
     closeModal('modal-pagamento');
     refreshAll();
@@ -2626,7 +2744,7 @@ function renderReport() {
 
   if(type==='debts') {
     const clientsWithDebt=[...data.clients].map(c=>{
-      const mvs=data.movements.filter(m=>m.clientCode===c.code);
+      const mvs=activeMovements().filter(m=>m.clientCode===c.code);
       const totalSales=mvs.filter(m=>m.type==='venda').reduce((s,m)=>s+m.total,0);
       const totalPay=mvs.filter(m=>m.type==='pagamento').reduce((s,m)=>s+m.total,0);
       return {...c, totalSales, totalPay, debt:Math.max(0,totalSales-totalPay)};
@@ -2664,7 +2782,7 @@ function renderReport() {
 
   if(type==='daily') {
     const date=document.getElementById('report-date').value||today();
-    const mvs=data.movements.filter(m=>m.date===date);
+    const mvs=activeMovements().filter(m=>m.date===date);
     const sales=mvs.filter(m=>m.type==='venda');
     const payments=mvs.filter(m=>m.type==='pagamento');
     const totalSales=sales.reduce((s,m)=>s+m.total,0);
@@ -2675,7 +2793,7 @@ function renderReport() {
         <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
           <div class="hstat"><div class="hstat-val" style="color:var(--red)">${fmtMoney(totalSales)}</div><div class="hstat-lbl">Vendas</div></div>
           <div class="hstat"><div class="hstat-val" style="color:var(--green)">${fmtMoney(totalPay)}</div><div class="hstat-lbl">Recebido</div></div>
-          <div class="hstat"><div class="hstat-val">${sales.length}</div><div class="hstat-lbl">Transações</div></div>
+          <div class="hstat"><div class="hstat-val">${countSaleTransactions(sales)}</div><div class="hstat-lbl">Vendas</div></div>
         </div>
       </div>
       <div class="section-title" style="font-size:1.2rem">Vendas do Dia</div>
@@ -2701,7 +2819,7 @@ function renderReport() {
       </table></div>`:'<div class="empty" style="padding:1.5rem"><p>Nenhum pagamento nesta data.</p></div>'}`;
   } else {
     const month=document.getElementById('report-month').value||thisMonth();
-    const mvs=data.movements.filter(m=>m.date.startsWith(month));
+    const mvs=activeMovements().filter(m=>m.date.startsWith(month));
     const sales=mvs.filter(m=>m.type==='venda');
     const payments=mvs.filter(m=>m.type==='pagamento');
     const totalSales=sales.reduce((s,m)=>s+m.total,0);
@@ -2737,7 +2855,7 @@ function renderReport() {
           <div class="hstat"><div class="hstat-val" style="color:var(--red)">${fmtMoney(totalSales)}</div><div class="hstat-lbl">Total Vendido</div></div>
           <div class="hstat"><div class="hstat-val" style="color:var(--green)">${fmtMoney(totalPay)}</div><div class="hstat-lbl">Total Recebido</div></div>
           <div class="hstat"><div class="hstat-val" style="color:var(--accent2)">${fmtMoney(totalSales-totalPay)}</div><div class="hstat-lbl">Saldo em Aberto</div></div>
-          <div class="hstat"><div class="hstat-val">${sales.length}</div><div class="hstat-lbl">Nº Vendas</div></div>
+          <div class="hstat"><div class="hstat-val">${countSaleTransactions(sales)}</div><div class="hstat-lbl">Nº Vendas</div></div>
           <div class="hstat"><div class="hstat-val" style="color:${netProfit<0?'var(--red)':'var(--green)'}">${hasCostData?fmtMoney(netProfit):'—'}</div><div class="hstat-lbl">Lucro Líquido</div></div>
         </div>
       </div>
@@ -2832,7 +2950,7 @@ function buildDebtsPdf() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const clientsWithDebt = [...data.clients].map(c => {
-    const mvs = data.movements.filter(m => m.clientCode === c.code);
+    const mvs = activeMovements().filter(m => m.clientCode === c.code);
     const totalSales = mvs.filter(m => m.type === 'venda').reduce((s, m) => s + m.total, 0);
     const totalPay = mvs.filter(m => m.type === 'pagamento').reduce((s, m) => s + m.total, 0);
     return { ...c, debt: Math.max(0, totalSales - totalPay) };
@@ -2872,7 +2990,7 @@ function buildDailyPdf() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const date = document.getElementById('report-date').value || today();
-  const mvs = data.movements.filter(m => m.date === date);
+  const mvs = activeMovements().filter(m => m.date === date);
   const sales = mvs.filter(m => m.type === 'venda');
   const payments = mvs.filter(m => m.type === 'pagamento');
   const totalSales = sales.reduce((s, m) => s + m.total, 0);
@@ -2883,7 +3001,7 @@ function buildDailyPdf() {
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(255, 61, 90); doc.text(`Vendas: ${fmtMoney(totalSales)}`, 14, y);
   doc.setTextColor(0, 180, 90); doc.text(`Recebido: ${fmtMoney(totalPay)}`, 80, y);
-  doc.setTextColor(20, 20, 20); doc.text(`Transações: ${sales.length}`, 150, y);
+  doc.setTextColor(20, 20, 20); doc.text(`Vendas: ${countSaleTransactions(sales)}`, 150, y);
   y += 10;
 
   doc.setFontSize(11); doc.setFont('helvetica', 'bold');
@@ -2924,7 +3042,7 @@ function buildMonthlyPdf() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const month = document.getElementById('report-month').value || thisMonth();
-  const mvs = data.movements.filter(m => m.date.startsWith(month));
+  const mvs = activeMovements().filter(m => m.date.startsWith(month));
   const sales = mvs.filter(m => m.type === 'venda');
   const payments = mvs.filter(m => m.type === 'pagamento');
   const totalSales = sales.reduce((s, m) => s + m.total, 0);
@@ -3486,6 +3604,7 @@ document.getElementById('order-delivery-date').value = localDateISO(tomorrow);
 // Close modal on overlay click
 document.getElementById('modal-extrato').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-extrato'); });
 document.getElementById('modal-pagamento').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-pagamento'); });
+document.getElementById('modal-cancel-movement').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-cancel-movement'); });
 document.getElementById('modal-edit-client').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-client'); });
 document.getElementById('modal-edit-product').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-edit-product'); });
 document.getElementById('modal-entregar').addEventListener('click', function(e){ if(e.target===this) closeModal('modal-entregar'); });
